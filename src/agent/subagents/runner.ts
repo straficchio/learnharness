@@ -28,6 +28,7 @@ import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMis
 import type { ChatStore, JobStore } from "../../core/ports.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
+import { resolveAllowedPath } from "../tools/fs-shared.ts";
 import { runResearcherAgent } from "./researcher.ts";
 import { runVisualMaker } from "./visual-maker.ts";
 
@@ -494,10 +495,20 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		const path = typeof input?.path === "string" && input.path.trim() ? input.path.trim() : "";
 		const question = typeof input?.question === "string" ? input.question : "";
 
+		let safePath: string;
+		try {
+			safePath = await resolveAllowedPath(path);
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, { path, question, brief: `PDF failed: ${reason}`, pagesRead: [], pagesConsulted: [] });
+			return;
+		}
+
 		try {
 			jobStore.updateJob(jobId, { activity: "reading pdf" });
 			const result = await runPdfReaderAgent(
-				{ path, question },
+				{ path: safePath, question },
 			{
 				engine: model,
 				abortSignal: loop.abortSignal,

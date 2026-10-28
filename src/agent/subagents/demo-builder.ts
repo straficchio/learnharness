@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { serverExecute } from "../tool-execute.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubagent } from "./pi-run.ts";
@@ -203,6 +203,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 	].join("\n");
 
 	let finalText = "";
+	let lastStop: AssistantMessage["stopReason"] | undefined;
 	try {
 		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity)), {
 			role: "demoBuilder",
@@ -216,6 +217,10 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 			chatId: opts.chatId,
 		});
 		finalText = result.text;
+		const last = [...result.newMessages]
+			.reverse()
+			.find((m) => (m as { role?: string }).role === "assistant") as AssistantMessage | undefined;
+		lastStop = last?.stopReason;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		return { title, html: "", tested: true, notes: `FAILED: the builder crashed — ${msg}` };
@@ -223,12 +228,14 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 
 	// The model produced nothing.
 	if (!state.html) {
-		return {
-			title,
-			html: "",
-			tested: true,
-			notes: `FAILED: the builder never wrote a demo.${finalText ? ` (${finalText.slice(0, 300)})` : ""}`,
-		};
+		// A reasoning model can spend the whole output budget before it ever
+		// calls write_demo; name that failure instead of the misleading
+		// "never wrote a demo" (observed with Strata/Qwen, 2026-10-28).
+		const notes =
+			lastStop === "length"
+				? `FAILED: the builder's reply hit the output limit before calling write_demo. Lower the demo builder's thinking level or raise Max output tokens.${finalText ? ` (${finalText.slice(0, 300)})` : ""}`
+				: `FAILED: the builder never wrote a demo.${finalText ? ` (${finalText.slice(0, 300)})` : ""}`;
+		return { title, html: "", tested: true, notes };
 	}
 
 	// The verify gate: the delivered html must have a clean headless run —

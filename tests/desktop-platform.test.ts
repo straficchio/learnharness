@@ -18,13 +18,15 @@ const mainRequire = createRequire(mainFile);
 function windowOptions(platform: string, env: Record<string, string> = {}) {
 	class FakeWindow {
 		constructor(readonly options: unknown) {}
-		webContents = { on() {}, setWindowOpenHandler() {} };
+		webContents = { on() {}, reload() {}, setWindowOpenHandler() {} };
 		loadURL() {}
+		on() {}
 		once() {}
 	}
 	const electron = {
 		app: { setName() {}, getPath: () => "/fixture/LearnHarness", setPath() {}, requestSingleInstanceLock: () => false, quit() {} },
 		BrowserWindow: FakeWindow,
+		powerMonitor: { on() {}, removeListener() {} },
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = {
@@ -79,6 +81,13 @@ describe("desktop window chrome", () => {
 		assert.deepEqual(invoked, [["lh:subscriptions:web-browser", action]]);
 	});
 
+	it("recovers the window after a renderer crash or system resume", () => {
+		assert.match(mainSource, /render-process-gone/);
+		assert.match(mainSource, /powerMonitor\.on\("resume", onResume\)/);
+		assert.match(mainSource, /recoverWindow\(`renderer \$\{details\.reason\}/);
+		assert.match(mainSource, /webContents\.reload\(\)/);
+	});
+
 	it("preload exposes OS identity without exposing Node/Electron to the renderer", () => {
 		let bridge: Record<string, unknown> = {};
 		const context = {
@@ -96,7 +105,7 @@ describe("desktop window chrome", () => {
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
 		assert.deepEqual(Object.keys(bridge).sort(), [
-			"chatgpt", "checkForUpdates", "expandWindow", "getUpdateState", "getZoom", "installUpdate", "onOpenSettings", "onUpdateStatus", "onZoom", "platform", "subscriptions",
+			"chatgpt", "checkForUpdates", "expandWindow", "getUpdateState", "getZoom", "installUpdate", "onOpenSettings", "onUpdateStatus", "onZoom", "platform", "setAutoUpdate", "subscriptions",
 		]);
 		assert.deepEqual(Object.keys(bridge.subscriptions as object).sort(), ["cancel", "consent", "disconnect", "login", "onChange", "open", "respond", "retry", "status"]);
 	});

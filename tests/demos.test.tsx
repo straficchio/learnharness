@@ -662,6 +662,17 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: the builder never wrote a demo/);
 	});
+
+	it("names the output limit when a reasoning reply exhausts the budget before write_demo", async () => {
+		const faux = createFauxCore({ tokenSize: { min: 64, max: 64 } });
+		faux.setResponses([fauxAssistantMessage("", { stopReason: "length" })]);
+		const result = await runDemoBuilder(
+			{ title: "T", brief: "b" },
+			{ engine: { model: faux.getModel(), streamFn: faux.streamSimple }, headless: fakeHeadless() },
+		);
+		assert.equal(result.html, "");
+		assert.match(result.notes ?? "", /output limit before calling write_demo/);
+	});
 });
 
 // ─── 4. the visual-maker loop ────────────────────────────────────────────────

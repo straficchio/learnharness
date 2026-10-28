@@ -49,9 +49,26 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 - **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
 - **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
 
-Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter, plus a local OpenAI-compatible engine (Strata, Ollama, LM Studio, llama.cpp, vLLM). Optional dictation and web search use separate service keys.
 
-All three platforms support in-app updates.
+All three platforms support in-app updates; automatic updates are off by default — use the app menu's **Check for Updates…** or enable them in Settings → General.
+
+## Local engine
+
+Settings → **Local engine** can point LearnHarness at any OpenAI-compatible
+server. A Strata installation typically exposes `http://127.0.0.1:8080/v1`;
+`strata connect` prints the exact base URL, model name, context, and optional
+key. Then:
+
+1. Enter the base URL and model id; save.
+2. Assign the model to Strong/Cheap (and Vision if the server supports images)
+   in Settings → Agent.
+3. Set compaction below the model's context window.
+
+The local model is a normal provider: you can mix it with cloud models per
+slot. Keep the base URL on `127.0.0.1` for local-only use; a LAN URL sends
+prompts and lesson content over the network. The optional `LOCAL_LLM_API_KEY`
+is stored in `auth.json`, not in `settings.json`.
 
 **Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
@@ -60,6 +77,7 @@ All three platforms support in-app updates.
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
 - **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
+- **File access guard.** The agent's file tools block LearnHarness's own `auth.json`, OAuth credential files, app data, `.env*`, common SSH/cloud credential locations, and `/proc`, and redact common key shapes from file text. This is a credential guard, not a full filesystem sandbox; only point the agent at folders you intend it to read.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
 
 ## Development and support

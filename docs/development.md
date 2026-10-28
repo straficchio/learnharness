@@ -41,9 +41,10 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | required — all LLM calls go through OpenRouter |
-| `GOOGLE_SEARCH_API_KEY` + `GOOGLE_CSE_ID` | researcher's `web_search` (Google Custom Search) |
+| `OPENROUTER_API_KEY` | optional — one BYOK provider; choose models in Settings (cloud or local) |
+| `TAVILY_API_KEY` / `BRAVE_API_KEY` | optional — researcher's `web_search` provider; auto-activates when present |
 | `DEEPGRAM_API_KEY` | optional — dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
+| `LOCAL_LLM_API_KEY` | optional — key for an OpenAI-compatible local server (Strata, Ollama, LM Studio, llama.cpp); keyless loopback works without it |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
 
 The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg.
@@ -57,6 +58,16 @@ Web/dev saves `chatgpt-credentials.json`, `github-copilot-credentials.json` and 
 Sign-in opens a new tab in the browser that initiated it; permit that tab if your browser blocks popups. **ChatGPT sign-in must be completed in a browser on the server's machine**, because its callback listener remains `127.0.0.1` on that machine. Copilot/Grok use device codes. In the Electron dev shell, provider pages open in the system browser instead. Once connected, credentials and refresh remain server-owned; other browsers using that server share its connections and background-use consent, just as they share its API keys. Disconnect, storage-failure handling, and provider-specific background consent retain the existing behavior; subscription routes never fall back to API-key billing.
 
 This remains a **trusted developer/shared-server mode**, not multi-user hosting. Subscription controls require same-origin JSON/custom-header requests; browser-opening actions are short-lived, origin-bound and one-use. These checks prevent ordinary cross-origin browser controls, **not user authentication or DNS-rebinding protection**. Do not expose an unprotected dev/server instance to untrusted users or the public Internet; a public deployment needs an independent access/host gate. Remote ChatGPT callback routing, per-user accounts and credential import are not implemented.
+
+### Local engine (OpenAI-compatible)
+
+Settings → **Local engine** stores the non-secret connection in the `local`
+settings section and registers a `local` pi-ai provider at runtime. The model
+id must match the server's (`strata connect`, `strata models list`, or
+`GET /v1/models`). The optional `LOCAL_LLM_API_KEY` lives in `auth.json`; the
+provider sends a placeholder key when none is configured because pi-ai's
+OpenAI-compatible adapter requires one. Keep the base URL on loopback for
+local-only use; `npm run dev` / `npm run start` bind `127.0.0.1` by default.
 
 ## Architecture
 

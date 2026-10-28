@@ -43,6 +43,7 @@ import { useAppearance } from "./appearance.tsx";
 import { SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { AgentSection } from "./agent-section.tsx";
+import { LocalEngineSection } from "./local-engine-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
@@ -59,6 +60,7 @@ import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 const SECTIONS = [
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Agent" },
+	{ id: "local", label: "Local engine" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
@@ -226,9 +228,9 @@ export function SettingsDialogBody({
 	 *  schema mistake caught by the validation surface). */
 	const write = useCallback(
 		async (
-			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "general" | "agent" | "models" | "local" | "appearance" | "graph" | "compaction",
 			body: object,
-		) => {
+		): Promise<{ ok: true; settings: UserSettings } | { ok: false; error: string }> => {
 			setError(null);
 			const res = await fetch(`/api/settings/${section}`, {
 				method: "PUT",
@@ -239,8 +241,9 @@ export function SettingsDialogBody({
 				const detail = (await res.json().catch(() => ({}))) as {
 					error?: string;
 				};
-				setError(`${section}: ${detail.error ?? res.status}`);
-				return;
+				const error = `${section}: ${detail.error ?? res.status}`;
+				setError(error);
+				return { ok: false, error };
 			}
 			// Server truth, never the request body (fix wave, owner repro):
 			// the models section clamps pinned thinking levels on write
@@ -250,15 +253,14 @@ export function SettingsDialogBody({
 			const stored = (
 				(await res.json().catch(() => null)) as { settings?: UserSettings } | null
 			)?.settings;
-			setRecord(
-				(prev) =>
-					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
-			);
+			const next = stored ?? ({ ...(record ?? {}), [section]: body } as UserSettings);
+			setRecord(next);
 			notifySettingsSaved(section);
 			if (section === "appearance")
 				onAppearanceChange(body as AppearanceSettings);
+			return { ok: true, settings: next };
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, record],
 	);
 
 	return (
@@ -361,9 +363,14 @@ export function SettingsDialogBody({
 									testid="section-general"
 								>
 									<UpdateSettings
-										autoUpdate={record.general?.autoUpdate ?? true}
+										autoUpdate={record.general?.autoUpdate ?? false}
 										onAutoUpdateChange={(on) =>
-											void write("general", { ...record.general, autoUpdate: on })
+											void write("general", { ...record.general, autoUpdate: on }).then((result) => {
+												// Live policy push: the Electron shell only re-reads
+												// the record at its next scheduled check, so an
+												// explicit toggle must reach it now.
+												if (result.ok) window.lh?.setAutoUpdate?.(on);
+											})
 										}
 									/>
 								</SettingsSection>
@@ -392,6 +399,18 @@ export function SettingsDialogBody({
 										onCompactionChange={(next: CompactionSettings) =>
 											void write("compaction", next)
 										}
+									/>
+								</SettingsSection>
+							)}
+							{active === "local" && (
+								<SettingsSection
+									title="Local engine"
+									hint="An OpenAI-compatible server on your machine or network."
+									testid="section-local"
+								>
+									<LocalEngineSection
+										local={record.local}
+										onSave={(next) => write("local", next)}
 									/>
 								</SettingsSection>
 							)}

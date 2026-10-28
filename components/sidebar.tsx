@@ -77,6 +77,8 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			/** Live policy push after the Settings toggle writes the record. */
+			setAutoUpdate?: (enabled: boolean) => void;
 		};
 	}
 }

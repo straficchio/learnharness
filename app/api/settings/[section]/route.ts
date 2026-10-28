@@ -42,6 +42,7 @@ import {
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
+	syncLocalEngine,
 	type SettingsBodyResult,
 } from "@/src/server";
 
@@ -129,5 +130,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// The local provider is process-wide state; make a local-section write
+	// visible to /api/models and the next turn immediately.
+	if (section === "local") syncLocalEngine();
 	return Response.json({ settings: next });
 }

@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { AUTH_FILE, PATHS } from "../../../config.ts";
 
 /**
  * Shared plumbing for the learner-filesystem tools (ls / find / grep) —
@@ -41,6 +42,82 @@ const EXCLUDED_DIR_NAMES = new Set(["node_modules", ".git", "Library", ".Trash"]
 export function resolveSourcePath(p?: string): string {
 	if (!p) return os.homedir();
 	return path.isAbsolute(p) ? p : path.join(os.homedir(), p);
+}
+
+// ─── Credential-path guard ──────────────────────────────────────────────────
+//
+// The learner-files tools are deliberately broad, but they must never turn
+// the model provider into a reader of the user's credentials. This is a
+// narrow, hard deny layer for the app's own stores and the common secret
+// locations; the broader folder-allowlist/approval work is a separate
+// hardening task. Paths are checked both as requested and after realpath
+// (explicit reads), while walks prune by path without following symlinks.
+
+const norm = (p: string): string => {
+	const resolved = path.resolve(p);
+	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+};
+
+const under = (root: string, target: string): boolean => {
+	const r = norm(root);
+	return target === r || target.startsWith(`${r}${path.sep}`);
+};
+
+const HOME = os.homedir();
+const DENIED_ROOTS: readonly string[] = [
+	PATHS.data,
+	AUTH_FILE,
+	path.join(HOME, ".ssh"),
+	path.join(HOME, ".aws"),
+	path.join(HOME, ".gnupg"),
+	path.join(HOME, ".kube"),
+	path.join(HOME, ".docker"),
+	path.join(HOME, ".azure"),
+	path.join(HOME, ".password-store"),
+	path.join(HOME, ".local", "share", "keyrings"),
+	path.join(HOME, ".config", "gcloud"),
+	path.join(HOME, ".config", "gh"),
+	path.join(HOME, ".config", "hub"),
+	path.join(HOME, ".config", "LearnHarness"),
+	path.join(HOME, ".config", "learnharness"),
+	path.join(HOME, "AppData"),
+	path.join(HOME, "Library"),
+	"/proc",
+	"/sys",
+	"/dev",
+	"/etc",
+];
+
+const DENIED_BASENAME_RE =
+	/^(?:\.env(?:\..+)?|auth\.json|chatgpt-credentials\.json|github-copilot-credentials\.json|xai-credentials\.json|id_rsa|id_ed25519|id_ecdsa|\.netrc|\.npmrc|\.git-credentials|\.bash_history|\.zsh_history|\.python_history|\.node_repl_history|.*\.pem|.*\.key)$/i;
+
+/** True when a requested path is a known secret store / credential area.
+ *  Pure path check (no fs); explicit reads additionally realpath first. */
+export function isDeniedPath(candidate: string): boolean {
+	const resolved = norm(candidate);
+	if (DENIED_ROOTS.some((root) => under(root, resolved))) return true;
+	const base = path.basename(resolved);
+	if (DENIED_BASENAME_RE.test(base)) return true;
+	// A credential file nested under an otherwise innocuous folder.
+	if (/credential/i.test(base) && /\.json$/i.test(base)) return true;
+	return false;
+}
+
+/** Resolve a tool path and reject credential stores. Returns the realpath
+ *  so the caller reads exactly what was checked (symlink-escape safe). */
+export async function resolveAllowedPath(p?: string): Promise<string> {
+	const requested = resolveSourcePath(p);
+	let real = requested;
+	try {
+		real = await fs.realpath(requested);
+	} catch {
+		// Missing path: keep the requested form; the caller's read/stat will
+		// report the honest ENOENT.
+	}
+	if (isDeniedPath(requested) || isDeniedPath(real)) {
+		throw new Error("Access to credentials and app data is blocked — ask the learner to add a study folder.");
+	}
+	return real;
 }
 
 /** pi's formatSize idiom (50KB prints as "50.0KB"). */
@@ -167,6 +244,7 @@ export async function walkFiles(
 				return true;
 			}
 			const full = path.join(dir, entry.name);
+			if (isDeniedPath(full)) continue;
 			if (entry.isDirectory()) {
 				if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
 				if (await walkDir(full)) return true;

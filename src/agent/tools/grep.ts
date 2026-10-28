@@ -10,11 +10,12 @@ import {
 	isBinaryFile,
 	matchGlob,
 	MAX_OUTPUT_BYTES,
-	resolveSourcePath,
+	resolveAllowedPath,
 	truncateGrepLine,
 	walkFiles,
 	WALK_TIMEOUT_MS,
 } from "./fs-shared.ts";
+import { redactSecrets } from "./redact.ts";
 
 /**
  * The grep tool — sources v1 (2026-09-19): pi's dist/core/tools/grep.js
@@ -53,7 +54,7 @@ export const grepTool: AgentTool<typeof grepInput> = {
 	parameters: grepInput,
 	execute: serverExecute("grep", grepInput, async (input, ctx) => {
 		if (ctx?.signal?.aborted) return "Operation aborted";
-		const searchPath = resolveSourcePath(input.path);
+		const searchPath = await resolveAllowedPath(input.path);
 
 		let stat;
 		try {
@@ -148,9 +149,10 @@ export const grepTool: AgentTool<typeof grepInput> = {
 					const end = contextValue > 0 ? Math.min(lines.length, i + 1 + contextValue) : i + 1;
 					for (let current = start; current <= end; current++) {
 						const { text, wasTruncated } = truncateGrepLine(lines[current - 1] ?? "");
+						const safeText = redactSecrets(text);
 						if (wasTruncated) linesTruncated = true;
 						// pi's format: ':' for match lines, '-' for context lines.
-						outLines.push(current === i + 1 ? `${rel}:${current}: ${text}` : `${rel}-${current}- ${text}`);
+						outLines.push(current === i + 1 ? `${rel}:${current}: ${safeText}` : `${rel}-${current}- ${safeText}`);
 					}
 				}
 			}
