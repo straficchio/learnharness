@@ -1334,6 +1334,20 @@ function userText(id: string, text: string): LhMessage {
 	return { ...newUserMessage(text), id };
 }
 
+/** The delivered sub-agent marker shape (buildSubagentSteer): a custom
+ *  message with a deterministic `steer_job_<id>` server id. */
+function subagentSteer(id: string): LhMessage {
+	return {
+		id,
+		role: "custom",
+		customType: "subagent-steer",
+		content: "Research failed: terminated",
+		display: true,
+		details: { jobId: "job_mvso19gm", kind: "research" },
+		timestamp: 2,
+	} as never;
+}
+
 describe("adoptRecord — append-only adoption", () => {
 	it("splices a server-added steer between the record and the live tail", () => {
 		const m = model({ initialMessages: [userText("u1", "topic")] });
@@ -1371,6 +1385,40 @@ describe("adoptRecord — append-only adoption", () => {
 			absorbed(answer, [{ ...newAnswerResult("call-1", "quiz", { correct: true }), id: "srv_10" } as LhMessage]),
 			"the answer result absorbs by toolCallId",
 		);
+	});
+
+	it("drops a streamed marker the record now carries — one key, one message (2026-10-30)", () => {
+		// The incident: a failed-research steer reached the client twice — the
+		// stream replays it as a custom message, and the write-ahead record
+		// (adoptAppendOnly's fetch) already carries the same server id. The
+		// adoption must retire the tail copy, not render two children with
+		// key steer_job_<id>.
+		const m = model({ chatId: "chat_dup" });
+		const marker = subagentSteer("steer_job_mvso19gm_0b831b33");
+		m.applyWireEvent({ type: "message_start", message: marker });
+		m.applyWireEvent({ type: "message_end", message: marker });
+		m.adoptRecord([marker]);
+		const native = m.getState().nativeMessages;
+		assert.deepEqual(
+			native.map((x) => (x as { id?: string }).id),
+			[marker.id],
+			"the record copy is canon; the streamed copy is gone",
+		);
+		assert.equal(m.getState().messages.length, 1, "the view renders one card");
+	});
+
+	it("ignores a replayed marker the record already carries — adopt-then-stream order", () => {
+		// The other arrival order: the record landed first (mount snapshot or
+		// poll), then the stream re-announces the marker. The wire upsert must
+		// consult base, or the tail duplicates the persisted message.
+		const marker = subagentSteer("steer_job_mvso19gm_0b831b33");
+		const m = model({ chatId: "chat_dup", initialMessages: [marker] });
+		m.applyWireEvent({ type: "message_end", message: marker });
+		assert.deepEqual(
+			m.getState().nativeMessages.map((x) => (x as { id?: string }).id),
+			[marker.id],
+		);
+		assert.equal(m.getState().messages.length, 1);
 	});
 
 	it("setMessages is the full snapshot swap (the idle settle sync)", () => {
