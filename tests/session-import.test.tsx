@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SessionImportButton, importSessionText } from "../components/session-import.tsx";
+import { SessionImportButton, importSessionText, importSessionZip } from "../components/session-import.tsx";
 
 describe("SessionImportButton", () => {
 	it("renders the import door and the hidden JSON picker", () => {
@@ -18,7 +18,7 @@ describe("SessionImportButton", () => {
 		assert.match(html, /data-testid="import-session"/);
 		assert.match(html, /Import session…/);
 		assert.match(html, /data-testid="import-session-input"/);
-		assert.match(html, /accept="\.json,application\/json"/);
+		assert.match(html, /accept="\.json,\.zip,application\/json,application\/zip"/);
 	});
 });
 
@@ -80,6 +80,60 @@ describe("importSessionText", () => {
 			}) as typeof fetch,
 		});
 		assert.deepEqual(network, { ok: false, error: "Could not reach the server." });
+	});
+});
+
+describe("importSessionZip", () => {
+	it("POSTs the ZIP and normalizes imported/conflict/failure summaries", async () => {
+		let url = "";
+		let contentType = "";
+		const outcome = await importSessionZip(new Uint8Array([1, 2, 3]).buffer, {
+			fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+				url = String(input);
+				contentType = (init?.headers as Record<string, string>)["content-type"] ?? "";
+				assert.ok(init?.body instanceof ArrayBuffer);
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						imported: [{ id: "chat_a", title: "A" }],
+						replaced: [],
+						conflicts: [{ id: "chat_b", title: "B" }],
+						failures: [{ file: "bad.json", error: "invalid", id: "chat_c", title: "C", code: "invalid_session" }],
+					}),
+					{ status: 200 },
+				);
+			}) as typeof fetch,
+		});
+		assert.equal(url, "/api/chats/import?zip=1");
+		assert.equal(contentType, "application/zip");
+		assert.deepEqual(outcome, {
+			ok: true,
+			imported: [{ id: "chat_a", title: "A" }],
+			replaced: [],
+			conflicts: [{ id: "chat_b", title: "B" }],
+			failures: [{ file: "bad.json", error: "invalid", id: "chat_c", title: "C", code: "invalid_session" }],
+		});
+	});
+
+	it("passes replace and surfaces a ZIP-level refusal", async () => {
+		const replaced = await importSessionZip(new ArrayBuffer(1), {
+			replace: true,
+			fetchImpl: (async (input: RequestInfo | URL) => {
+				assert.equal(String(input), "/api/chats/import?zip=1&replace=1");
+				return new Response(
+					JSON.stringify({ ok: true, imported: [], replaced: [{ id: "chat_a", title: "A" }], conflicts: [], failures: [] }),
+					{ status: 200 },
+				);
+			}) as typeof fetch,
+		});
+		assert.equal(replaced.ok, true);
+		if (replaced.ok) assert.deepEqual(replaced.replaced, [{ id: "chat_a", title: "A" }]);
+
+		const refused = await importSessionZip(new ArrayBuffer(1), {
+			fetchImpl: (async () =>
+				new Response(JSON.stringify({ error: "The ZIP is too large.", code: "too_large" }), { status: 413 })) as typeof fetch,
+		});
+		assert.deepEqual(refused, { ok: false, error: "The ZIP is too large.", code: "too_large" });
 	});
 });
 

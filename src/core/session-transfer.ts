@@ -23,6 +23,18 @@ export const SESSION_EXPORT_VERSION = 1;
  *  sink. */
 export const MAX_SESSION_IMPORT_BYTES = 25 * 1024 * 1024;
 
+/** Bulk transfer bounds: the sidebar caps a selection at 500, a ZIP upload
+ *  at 100 MiB compressed with 500 JSON entries, and decompression at 250 MiB
+ *  total. */
+export const MAX_BULK_EXPORT_SESSIONS = 500;
+export const MAX_BULK_IMPORT_BYTES = 100 * 1024 * 1024;
+export const MAX_BULK_IMPORT_ENTRIES = 500;
+export const MAX_BULK_IMPORT_UNCOMPRESSED_BYTES = 250 * 1024 * 1024;
+
+export function bulkSessionExportFilename(date = new Date()): string {
+	return `learnharness-sessions-${date.toISOString().slice(0, 10)}.zip`;
+}
+
 export interface SessionExportFile {
 	format: typeof SESSION_EXPORT_FORMAT;
 	version: typeof SESSION_EXPORT_VERSION;

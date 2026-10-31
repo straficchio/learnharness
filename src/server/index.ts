@@ -7,6 +7,7 @@
 export * from "./chat-handler.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
+export * from "./session-transfer.ts";
 export * from "./graph.ts";
 export { extractionStatuses, NotesImportError } from "../agent/subagents/extraction.ts";
 export * from "./commit-positions.ts";

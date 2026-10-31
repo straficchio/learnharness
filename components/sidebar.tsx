@@ -6,8 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import { SessionImportButton } from "@/components/session-import";
+import { BulkDeleteDialog, BulkSelectionBar, exportSessionsZip, saveBulkExport } from "@/components/session-bulk";
+import { hasBulkSelection, pruneSelection, selectAllVisible, toggleSelection } from "@/components/session-selection";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -290,14 +292,19 @@ export function SessionRow({
 	active,
 	onOpen,
 	kbdSelected = false,
+	selected = false,
 	onContextMenu,
 }: {
 	chat: ChatListItem;
 	active: boolean;
-	onOpen: () => void;
+	/** Plain click opens; Ctrl/Cmd-click selection is decided by the
+	 *  sidebar before it navigates. */
+	onOpen: (e: React.MouseEvent<HTMLButtonElement>) => void;
 	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
 	 *  visually distinct from the active session, which stays filled. */
 	kbdSelected?: boolean;
+	/** Bulk-selection highlight (2026-10-31). */
+	selected?: boolean;
 	/** Right-click opens the context menu (wave 6: Rename / Delete). */
 	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
@@ -306,11 +313,14 @@ export function SessionRow({
 			type="button"
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
+			aria-pressed={selected}
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
+			data-selected={selected ? "true" : undefined}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
-				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
+				selected && "bg-accent/80 ring-1 ring-border",
+				kbdSelected && !active && !selected && "bg-accent/60 ring-1 ring-border",
 			)}
 		>
 			<SessionStatus busy={chat.busy || chat.compacting} />
@@ -323,6 +333,7 @@ export function SessionRow({
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
 				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
 			</span>
+			{selected && <CheckIcon className="size-3.5 shrink-0 text-foreground" aria-label="Selected" />}
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
 			    the teaching rows and reads cleaner. */}
@@ -394,14 +405,26 @@ function SessionsSidebar() {
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
+	/* ── Bulk selection (2026-10-31) ──
+	   No separate mode: Ctrl/Cmd-click toggles a row; a plain click opens and
+	   clears. The bar appears only for a genuine multi-selection. */
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+	const [bulkExporting, setBulkExporting] = useState(false);
+	const [bulkError, setBulkError] = useState<string | null>(null);
+	const [bulkDelete, setBulkDelete] = useState<ChatListItem[] | null>(null);
+	const clearSelection = useCallback(() => {
+		setSelectedIds(new Set());
+		setBulkError(null);
+	}, []);
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
 		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
 	}, []);
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
+		clearSelection();
 		window.localStorage.setItem(KIND_FILTER_KEY, f);
-	}, []);
+	}, [clearSelection]);
 	const pathname = usePathname();
 	const router = useRouter();
 	const { open: openSettings } = useSettingsDialog();
@@ -411,8 +434,9 @@ function SessionsSidebar() {
 	   message is sent (and that message becomes its title). Search: a
 	   client-side filter over the poll snapshot — no server round trip. */
 	const newSession = useCallback(() => {
+		clearSelection();
 		router.push("/chat/new");
-	}, [router]);
+	}, [clearSelection, router]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
@@ -443,6 +467,10 @@ function SessionsSidebar() {
 			const res = await fetch("/api/chats", { cache: "no-store" });
 			const d = (await res.json()) as { chats: ChatListItem[] };
 			setChats(d.chats);
+			setSelectedIds((prev) => {
+				const next = new Set(pruneSelection(prev, d.chats.map((chat) => chat.id)));
+				return next.size === prev.size ? prev : next;
+			});
 		} catch {
 			// a transient failure keeps the last snapshot
 			setChats((prev) => prev ?? []);
@@ -553,8 +581,21 @@ function SessionsSidebar() {
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
+		clearSelection();
 		ctxAnchorRef.current = e.currentTarget;
 		setCtxChatId(chat.id);
+	};
+
+	const openRow = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
+		if (e.metaKey || e.ctrlKey) {
+			e.preventDefault();
+			setCtxChatId(null);
+			setSelectedIds((prev) => toggleSelection(prev, chat.id));
+			return;
+		}
+		clearSelection();
+		setKbdIndex(null);
+		router.push(`/chat/${chat.id}`);
 	};
 
 	// The menu contract (agent-section's): any pointerdown outside the menu
@@ -614,11 +655,78 @@ function SessionsSidebar() {
 		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
 			setDeleting(null);
 			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
+			setSelectedIds((prev) => {
+				if (!prev.has(id)) return prev;
+				const next = new Set(prev);
+				next.delete(id);
+				return next;
+			});
 			if (pathname === `/chat/${id}`) router.push("/");
 			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
 		},
 		[pathname, router],
 	);
+
+	const selectedChats = useMemo(
+		() => (chats ?? []).filter((chat) => selectedIds.has(chat.id)),
+		[chats, selectedIds],
+	);
+	const allVisibleSelected = Boolean(shown?.length) && shown!.every((chat) => selectedIds.has(chat.id));
+	const canSelectAll = Boolean(shown?.length) && !allVisibleSelected;
+
+	const selectAll = useCallback(() => {
+		setSelectedIds(selectAllVisible((shown ?? []).map((chat) => chat.id)));
+		setBulkError(null);
+	}, [shown]);
+
+	const exportSelected = useCallback(async () => {
+		if (selectedIds.size === 0 || bulkExporting) return;
+		setBulkExporting(true);
+		setBulkError(null);
+		const outcome = await exportSessionsZip([...selectedIds]);
+		setBulkExporting(false);
+		if (outcome.ok) saveBulkExport(outcome);
+		else setBulkError(outcome.error);
+	}, [bulkExporting, selectedIds]);
+
+	const deleteSelected = useCallback(() => {
+		if (selectedChats.length === 0) {
+			setBulkError("None of the selected sessions still exist.");
+			return;
+		}
+		setBulkError(null);
+		setBulkDelete(selectedChats);
+	}, [selectedChats]);
+
+	const onBulkDeleted = useCallback(
+		(deletedIds: string[], graphRevision: number) => {
+			const deleted = new Set(deletedIds);
+			setSelectedIds((prev) => new Set([...prev].filter((id) => !deleted.has(id))));
+			setChats((prev) => (prev ? prev.filter((chat) => !deleted.has(chat.id)) : prev));
+			const currentId = pathname.startsWith("/chat/") ? pathname.slice("/chat/".length) : null;
+			if (currentId && deleted.has(currentId)) router.push("/");
+			if (graphRevision > 0) {
+				window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
+			}
+		},
+		[pathname, router],
+	);
+
+	useEffect(() => {
+		clearSelection();
+	}, [pathname, clearSelection]);
+
+	useEffect(() => {
+		if (selectedIds.size === 0) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			e.preventDefault();
+			e.stopPropagation();
+			clearSelection();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [clearSelection, selectedIds]);
 
 	useEffect(() => {
 		const onFocusSearch = () => {
@@ -719,14 +827,28 @@ function SessionsSidebar() {
 					</button>
 					<SessionImportButton
 						onImported={(id) => {
+							clearSelection();
 							void refresh();
 							router.push(`/chat/${id}`);
+						}}
+						onBulkImported={() => {
+							clearSelection();
+							void refresh();
 						}}
 					/>
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
+					<button
+						type="button"
+						data-testid="select-all-sessions"
+						disabled={!canSelectAll}
+						onClick={selectAll}
+						className="shrink-0 text-[10px] text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-40"
+					>
+						Select all
+					</button>
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
 					<span className="relative flex-1">
 						<Input
@@ -735,6 +857,7 @@ function SessionsSidebar() {
 							value={query}
 							onChange={(e) => {
 								setQuery(e.target.value);
+								clearSelection();
 								// The list reorders under the query every keystroke —
 								// a stale walk index would point at the wrong row.
 								setKbdIndex(null);
@@ -752,6 +875,7 @@ function SessionsSidebar() {
 							onKeyDown={(e) => {
 								if (e.key === "Escape") {
 									e.stopPropagation();
+									clearSelection();
 									e.currentTarget.blur();
 									return;
 								}
@@ -834,16 +958,27 @@ function SessionsSidebar() {
 									chat={c}
 									active={pathname === `/chat/${c.id}`}
 									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
+									selected={selectedIds.has(c.id)}
+									onOpen={(e) => openRow(e, c)}
 									onContextMenu={(e) => openContext(e, c)}
 								/>
 							),
 						)
 					)}
 				</div>
+
+				{hasBulkSelection(selectedIds) && (
+					<BulkSelectionBar
+						count={selectedIds.size}
+						canSelectAll={canSelectAll}
+						onSelectAll={selectAll}
+						onExport={() => void exportSelected()}
+						onDelete={deleteSelected}
+						onCancel={clearSelection}
+						exporting={bulkExporting}
+						error={bulkError}
+					/>
+				)}
 
 					{/* Background agents (owner, sidebar round): the section is
 					    ALWAYS here — empty means empty (the header sits alone); it
@@ -964,6 +1099,11 @@ function SessionsSidebar() {
 					chat={deleting}
 					onClose={() => setDeleting(null)}
 					onDeleted={onDeleted}
+				/>
+				<BulkDeleteDialog
+					chats={bulkDelete}
+					onClose={() => setBulkDelete(null)}
+					onComplete={onBulkDeleted}
 				/>
 			</aside>
 	);

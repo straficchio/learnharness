@@ -1,23 +1,46 @@
 /**
- * POST /api/chats/import — restore a lossless session file.
+ * POST /api/chats/import — restore one JSON session or a bulk ZIP.
  *
- * Accepts the versioned export wrapper (and, for migration convenience, a
- * raw data/chats/<id>.json record). The route validates the structural
- * contract, preserves the id/state, and refuses an existing id unless the
- * caller explicitly asks to replace it. A replacement is refused while the
- * existing session has a live turn or background job; those writers would
- * otherwise race the restored record.
+ * JSON accepts the versioned export wrapper and, for migration convenience,
+ * a raw data/chats/<id>.json record. ZIP contains one or more such JSON
+ * files; new sessions import immediately, existing ids are reported as
+ * conflicts, and `?replace=1` retries with replace semantics. Per-file
+ * validation and live-work gates are shared with the single import.
  */
-import { MAX_SESSION_IMPORT_BYTES, parseSessionExport } from "@/src/core";
-import { clearTurnFailure, discardChatDeliveries, extractionStatuses, getChat, isTurnRunning, stores } from "@/src/server";
+import { strFromU8, unzipSync } from "fflate";
+import {
+	MAX_BULK_IMPORT_BYTES,
+	MAX_BULK_IMPORT_ENTRIES,
+	MAX_BULK_IMPORT_UNCOMPRESSED_BYTES,
+	MAX_SESSION_IMPORT_BYTES,
+	parseSessionExport,
+} from "@/src/core";
+import { importSessionRecord } from "@/src/server";
 
 export const dynamic = "force-dynamic";
+
+interface ImportedSession {
+	id: string;
+	title: string;
+}
+
+interface ImportFailure {
+	file: string;
+	error: string;
+	id?: string;
+	title?: string;
+	code?: string;
+}
 
 function errorResponse(error: string, status: number, code: string, extra: Record<string, unknown> = {}): Response {
 	return Response.json({ error, code, ...extra }, { status, headers: { "cache-control": "no-store" } });
 }
 
-export async function POST(req: Request): Promise<Response> {
+function jsonResponse(body: unknown): Response {
+	return Response.json(body, { headers: { "cache-control": "no-store" } });
+}
+
+async function importSingle(req: Request, replace: boolean): Promise<Response> {
 	const declared = Number(req.headers.get("content-length") ?? "");
 	if (Number.isFinite(declared) && declared > MAX_SESSION_IMPORT_BYTES) {
 		return errorResponse("The session file is too large.", 413, "too_large");
@@ -38,53 +61,109 @@ export async function POST(req: Request): Promise<Response> {
 	const parsed = parseSessionExport(value);
 	if (!parsed.ok) return errorResponse(parsed.error, 400, "invalid_session");
 
-	const session = parsed.session;
-	const replace = new URL(req.url).searchParams.get("replace") === "1";
-	const existing = getChat(session.id);
-
-	if (existing && !replace) {
-		return errorResponse("A session with this id already exists.", 409, "session_exists", {
-			id: session.id,
-			title: existing.title,
+	const outcome = importSessionRecord(parsed.session, { replace });
+	if (!outcome.ok) {
+		return errorResponse(outcome.error, 409, outcome.code, {
+			id: outcome.id,
+			title: outcome.title,
+			...(outcome.jobIds ? { jobIds: outcome.jobIds } : {}),
 		});
 	}
-	if (existing) {
-		if (isTurnRunning(session.id)) {
-			return errorResponse("That session has a turn running — try again when it finishes.", 409, "turn_in_flight", {
-				id: session.id,
-			});
-		}
-		const runningJobs = stores.jobStore.listJobs(session.id).filter((job) => job.status === "running");
-		if (runningJobs.length > 0) {
-			return errorResponse("That session has background jobs running — try again when they finish.", 409, "jobs_running", {
-				id: session.id,
-				jobIds: runningJobs.map((job) => job.id),
-			});
-		}
-		if (extractionStatuses().some((run) => run.chatId === session.id)) {
-			return errorResponse("That session is still extracting — try again when it finishes.", 409, "extraction_running", {
-				id: session.id,
-			});
-		}
+	return jsonResponse(outcome);
+}
+
+async function importZip(req: Request, replace: boolean): Promise<Response> {
+	const declared = Number(req.headers.get("content-length") ?? "");
+	if (Number.isFinite(declared) && declared > MAX_BULK_IMPORT_BYTES) {
+		return errorResponse("The ZIP file is too large.", 413, "too_large");
 	}
 
-	const imported = stores.chatStore.importChat(session, { replace });
-	if (!imported) {
-		return errorResponse("A session with this id already exists.", 409, "session_exists", {
-			id: session.id,
-			title: existing?.title ?? session.title,
+	const bytes = new Uint8Array(await req.arrayBuffer());
+	if (bytes.byteLength > MAX_BULK_IMPORT_BYTES) {
+		return errorResponse("The ZIP file is too large.", 413, "too_large");
+	}
+
+	let entries: Record<string, Uint8Array>;
+	let tooMany = false;
+	let tooLarge = false;
+	let count = 0;
+	let uncompressed = 0;
+	try {
+		entries = unzipSync(bytes, {
+			filter: (file) => {
+				if (!/\.json$/i.test(file.name) || /^__MACOSX\//i.test(file.name)) return false;
+				if (++count > MAX_BULK_IMPORT_ENTRIES) {
+					tooMany = true;
+					return false;
+				}
+				uncompressed += file.originalSize;
+				if (uncompressed > MAX_BULK_IMPORT_UNCOMPRESSED_BYTES) {
+					tooLarge = true;
+					return false;
+				}
+				return true;
+			},
 		});
+	} catch {
+		return errorResponse("The file is not a valid ZIP archive.", 400, "invalid_zip");
+	}
+	if (tooMany) {
+		return errorResponse(`A ZIP may contain at most ${MAX_BULK_IMPORT_ENTRIES} session files.`, 400, "too_many_entries");
+	}
+	if (tooLarge) {
+		return errorResponse("The ZIP expands beyond the session import limit.", 413, "too_large");
 	}
 
-	if (existing) {
-		// The restored record is the new truth; stale live-view/pending-delivery
-		// state from the replaced session must not write into it.
-		clearTurnFailure(session.id);
-		discardChatDeliveries(session.id);
+	const files = Object.entries(entries).filter(([name]) => !name.endsWith("/"));
+	if (files.length === 0) {
+		return errorResponse("The ZIP contains no .json session files.", 400, "no_sessions");
 	}
 
-	return Response.json(
-		{ ok: true, id: imported.id, title: imported.title, replaced: Boolean(existing) },
-		{ headers: { "cache-control": "no-store" } },
-	);
+	const imported: ImportedSession[] = [];
+	const replaced: ImportedSession[] = [];
+	const conflicts: ImportedSession[] = [];
+	const failures: ImportFailure[] = [];
+
+	for (const [file, data] of files) {
+		if (data.byteLength > MAX_SESSION_IMPORT_BYTES) {
+			failures.push({ file, error: "The session file is too large." });
+			continue;
+		}
+		let value: unknown;
+		try {
+			value = JSON.parse(strFromU8(data));
+		} catch {
+			failures.push({ file, error: "The file is not valid JSON." });
+			continue;
+		}
+		const parsed = parseSessionExport(value);
+		if (!parsed.ok) {
+			failures.push({ file, error: parsed.error });
+			continue;
+		}
+		const outcome = importSessionRecord(parsed.session, { replace });
+		if (outcome.ok) {
+			(outcome.replaced ? replaced : imported).push({ id: outcome.id, title: outcome.title });
+		} else if (outcome.code === "session_exists") {
+			conflicts.push({ id: outcome.id, title: outcome.title });
+		} else {
+			failures.push({
+				file,
+				error: outcome.error,
+				id: outcome.id,
+				title: outcome.title,
+				code: outcome.code,
+			});
+		}
+	}
+
+	return jsonResponse({ ok: true, imported, replaced, conflicts, failures });
+}
+
+export async function POST(req: Request): Promise<Response> {
+	const url = new URL(req.url);
+	const replace = url.searchParams.get("replace") === "1";
+	const zipRequested =
+		url.searchParams.get("zip") === "1" || (req.headers.get("content-type") ?? "").includes("application/zip");
+	return zipRequested ? importZip(req, replace) : importSingle(req, replace);
 }
