@@ -44,6 +44,22 @@ npx electron-builder --win --x64 --publish never
 npx electron-builder --linux --x64 --publish never
 ```
 
+## Build all three without a release
+
+Use the existing **Desktop release** workflow as the on-demand installer build:
+
+1. Open **Actions → Desktop release → Run workflow**.
+2. Select the branch to build and run it.
+3. Download these workflow artifacts when the run finishes:
+
+| Artifact | Contents |
+|---|---|
+| `learnharness-mac-arm64` | unsigned `.dmg`, `.zip`, blockmap, `latest-mac.yml` |
+| `learnharness-windows-x64` | unsigned NSIS `.exe`, blockmap, `latest.yml` |
+| `learnharness-linux-x64` | `.AppImage`, `.deb`, `latest-linux.yml` |
+
+A manual run never creates or publishes a release and needs no signing secrets. The macOS app in a manual run is unsigned and skips notarization. Artifacts are retained for 7 days. The tag-push path remains the signed/notarized production release path.
+
 ## CI vs release
 
 `.github/workflows/ci.yml` runs on main pushes and pull requests:
