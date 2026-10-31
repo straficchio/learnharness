@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
+import { SessionImportButton } from "@/components/session-import";
 import type { ChatDeleteMode } from "@/src/core";
 import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
@@ -716,6 +717,12 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					<SessionImportButton
+						onImported={(id) => {
+							void refresh();
+							router.push(`/chat/${id}`);
+						}}
+					/>
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
@@ -864,8 +871,8 @@ function SessionsSidebar() {
 				</div>
 
 				{/* The context menu (wave 6 + the extraction-UX redesign): the
-				    coverage block above, then exactly two management actions
-				    (owner ruling — no more). MenuShell owns placement/focus/arrow
+				    coverage block above, then the management actions (rename,
+				    the two exports, delete). MenuShell owns placement/focus/arrow
 				    cycling; the dismissal effect above owns the contract. */}
 				{ctxChatId !== null && (
 					<MenuShell
@@ -874,12 +881,13 @@ function SessionsSidebar() {
 						preferredSide="down"
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
-						{/* The two management actions first, then the extraction block
-						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
-						    top, the coverage numbers + Extract affordance sit below the
-						    hairline — the block is info + a stateful affordance, the
-						    actions above it. Fetched on menu open (the block mounts WITH
-						    the menu); 409 = benign. Renders nothing on a failed read. */}
+						{/* The management actions first, then the extraction block
+						    (owner refinement round, 2026-09-24): Rename, the exports, and
+						    Delete stay at the top; the coverage numbers + Extract affordance
+						    sit below the hairline — the block is info + a stateful
+						    affordance, the actions above it. Fetched on menu open (the
+						    block mounts WITH the menu); 409 = benign. Renders nothing on a
+						    failed read. */}
 						<button
 							type="button"
 							data-testid="ctx-rename"
@@ -912,6 +920,26 @@ function SessionsSidebar() {
 							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
 						>
 							Export as Markdown…
+						</button>
+						{/* Lossless session export (2026-10-31): the full ChatRecord
+						    in a versioned wrapper — the import counterpart lives with
+						    the create doors above. Same-origin anchor download. */}
+						<button
+							type="button"
+							data-testid="ctx-export-session"
+							onClick={() => {
+								const chatId = ctxChatId;
+								setCtxChatId(null);
+								const a = document.createElement("a");
+								a.href = `/api/chats/${chatId}/export`;
+								a.download = ""; // the route's filename wins
+								document.body.appendChild(a);
+								a.click();
+								a.remove();
+							}}
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+						>
+							Export session file…
 						</button>
 						<button
 							type="button"

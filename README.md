@@ -75,7 +75,7 @@ is stored in `auth.json`, not in `settings.json`.
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
-- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
+- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect. Sessions export losslessly as JSON from the session menu (or as Markdown) and import beside the new-session buttons.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
 - **File access guard.** The agent's file tools block LearnHarness's own `auth.json`, OAuth credential files, app data, `.env*`, common SSH/cloud credential locations, and `/proc`, and redact common key shapes from file text. This is a credential guard, not a full filesystem sandbox; only point the agent at folders you intend it to read.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.

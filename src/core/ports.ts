@@ -37,6 +37,11 @@ export interface ChatStore {
 	createChat(title: string, kind?: "practice"): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
+	/** Restore a full record from a session export. Preserves the id,
+	 *  timestamps, messages, tree, settings, and usage logs; writes the
+	 *  current schema stamp. `replace: false` refuses an existing id
+	 *  (null); `replace: true` overwrites the record file. */
+	importChat(record: ChatRecord, options?: { replace?: boolean }): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
 	/** Persist the full native message list (the record IS the agent
