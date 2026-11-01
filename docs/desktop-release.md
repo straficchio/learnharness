@@ -73,6 +73,16 @@ Use the existing **Desktop release** workflow as the on-demand installer build:
 
 A manual run never creates or publishes a release and needs no signing secrets. The macOS app in a manual run is unsigned and skips notarization. Artifacts are retained for 7 days. The tag-push path remains the signed/notarized production release path.
 
+## Localmain automatic builds
+
+`.github/workflows/localmain-build.yml` is the personal-fork build path. Every push to `localmain` (or a manual dispatch) runs the quality gates and builds unsigned installers on all three platforms, uploading:
+
+- `learnharness-localmain-mac-arm64`
+- `learnharness-localmain-windows-x64`
+- `learnharness-localmain-linux-x64`
+
+It never creates a GitHub Release, never signs/notarizes macOS, and retains artifacts for 7 days. The `main` branch remains an upstream replica; `localmain` is the working branch where feature branches are merged.
+
 ## CI vs release
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on main pushes, pull requests, and manual dispatch:
