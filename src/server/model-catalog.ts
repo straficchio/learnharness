@@ -35,9 +35,12 @@ function connectionModel(provider: string, id: string): Model<Api> | undefined {
 	if (provider === CLAUDE_CODE_PROVIDER && !claudeCodeAvailable()) return undefined;
 	return provider === "chatgpt" ? chatGPTModel(id) : nativeSubscriptionId(provider) ? nativeSubscriptionModel(provider, id) : piModels().getModel(provider, id);
 }
-function connectionProviderIds(): string[] { return [...piModels().getProviders().map((p) => p.id), "chatgpt", ...NATIVE_SUBSCRIPTIONS.map((p) => p.logicalId)]; }
+function connectionProviderIds(): string[] {
+	syncLocalEngine();
+	return [...piModels().getProviders().map((p) => p.id), "chatgpt", ...NATIVE_SUBSCRIPTIONS.map((p) => p.logicalId)];
+}
 import { settingsStore } from "../store/settings.ts";
-import { effectiveSettings } from "./stores.ts";
+import { effectiveSettings, syncLocalEngine } from "./stores.ts";
 import { keyValue } from "./keys.ts";
 import type { ChatSettings } from "../core/contracts/chat.ts";
 import type {
@@ -148,7 +151,8 @@ export function catalogSlots(): SlotPins {
  *  saving a key immediately federates the provider into the picker. */
 export function catalogProviders(): CatalogProvider[] {
 	piModels();
-	return AUTH_PROVIDER_KEYS.map((p) => ({
+	const local = effectiveSettings().local;
+	const rows: CatalogProvider[] = AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
@@ -161,7 +165,13 @@ export function catalogProviders(): CatalogProvider[] {
 		...(customProviderUsable(effectiveSettings().customProvider)
 			? [{ id: CUSTOM_PROVIDER.id, envVar: CUSTOM_PROVIDER.envVar, keyPresent: customProviderAvailable() }]
 			: []),
-	]).sort((a, b) => a.id.localeCompare(b.id));
+	]);
+	if (local.enabled && local.model) {
+		// Keyless local servers are usable; keyPresent means "provider is
+		// configured", not "an API key exists" — the picker federates on it.
+		rows.push({ id: "local", envVar: "LOCAL_LLM_API_KEY", keyPresent: true });
+	}
+	return rows.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** The providers whose key is present — the picker federates exactly
@@ -200,6 +210,7 @@ export function toModelDto(model: Model<Api>): ModelDto {
  *  server-side through this. No hardcoded fallback exists anywhere:
  *  a model missing here reads limit-null (usage-only, honest render). */
 export function catalogContextLimits(): Map<string, number> {
+	syncLocalEngine();
 	const keyed = keyedProviderIds();
 	const index = new Map<string, number>();
 	for (const provider of piModels().getProviders()) {
@@ -217,6 +228,7 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
+	syncLocalEngine();
 	const keyed = keyedProviderIds();
 	const models = piModels()
 		.getProviders()

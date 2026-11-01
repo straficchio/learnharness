@@ -116,6 +116,17 @@ describe("SessionRow", () => {
 		assert.doesNotMatch(html, /Waiting for input/);
 	});
 
+	it("bulk selection adds the selected state and check without changing the row id", () => {
+		const html = renderToStaticMarkup(
+			<SessionRow chat={item({})} active={false} selected onOpen={() => {}} />,
+		);
+		assert.match(html, /data-selected="true"/);
+		assert.match(html, /aria-pressed="true"/);
+		assert.match(html, /aria-label="Selected"/);
+		assert.match(html, /data-testid="session-row"/);
+		assert.doesNotMatch(render(item({})), /data-selected/, "unselected rows stay clean");
+	});
+
 	it("active row is visually marked by the background alone (owner, round 5: no weight change)", () => {
 		const html = render(item({}), true);
 		assert.ok(html.includes("bg-accent"), "active background");

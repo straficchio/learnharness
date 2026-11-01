@@ -33,6 +33,7 @@ Secrets and machine-specific paths may be supplied through the process environme
 | Provider-specific API key variables | Optional; needed only for the selected API provider. The supported UI key names are defined in `src/core/auth-keys.ts`. |
 | `TAVILY_API_KEY` / `BRAVE_API_KEY` | Optional search adapters. Research remains available without a search key and can fetch known URLs. |
 | `DEEPGRAM_API_KEY` | Optional dictation: short-lived token minting on the server; audio streams directly from the browser to Deepgram. |
+| `LOCAL_LLM_API_KEY` | Optional key for an OpenAI-compatible local server (Strata, Ollama, LM Studio, llama.cpp); keyless loopback works without it. |
 | `CHROME_PATH` | Optional Chrome/Chromium executable fallback for demo verification. The Electron browser helper is primary; no extra Chromium is downloaded. PDFs/SVGs use native rendering. |
 | `LH_DATA_DIR` | Relocates mutable chats, jobs, graph, settings and prompt overrides; default is repo `data/`. |
 | `LH_AUTH_FILE` | Relocates the API-key/custom-endpoint credential file; default is repo-root `auth.json`, separate from `data/`. |
@@ -54,6 +55,16 @@ Web/dev stores `chatgpt-credentials.json`, `github-copilot-credentials.json` and
 Sign-in opens a tab in the browser that initiated it; allow that tab if blocked. **Complete ChatGPT sign-in in a browser on the server's machine**, because the callback listener is `127.0.0.1` on that machine. Copilot/Grok use device codes. The Electron dev shell opens provider pages in the system browser. Credentials/refresh remain server-owned; other browsers connected to the same server share its connections and background-use consent, just as they share its keys and learning data.
 
 This is a **trusted local/shared developer-server mode**, not multi-user hosting. Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions prevent ordinary cross-origin browser controls. They are **not user authentication or DNS-rebinding protection**. Subscription support does not change Next's listening/LAN behavior. Do not expose the server to untrusted users or the public Internet without an independent access/host gate. Remote ChatGPT callback routing, per-user isolation and credential import are not implemented.
+
+### Local engine (OpenAI-compatible)
+
+Settings → **Local engine** stores the non-secret connection in the `local`
+settings section and registers a `local` pi-ai provider at runtime. The model
+id must match the server's (`strata connect`, `strata models list`, or
+`GET /v1/models`). The optional `LOCAL_LLM_API_KEY` lives in `auth.json`; the
+provider sends a placeholder key when none is configured because pi-ai's
+OpenAI-compatible adapter requires one. Keep the base URL on loopback for
+local-only use; `npm run dev` / `npm run start` bind `127.0.0.1` by default.
 
 ## Source map
 
@@ -126,3 +137,9 @@ These checks prove the exercised fixture/runtime contracts, not real provider en
 ## Lineage
 
 The teaching methodology grew from an Obsidian-based proof of concept. The harness began with Pi, moved to a standalone Next.js/AI SDK design, and now uses native Pi records, agents and events with its own browser projection. [Architecture](architecture.md) is the current reference; [the engine-swap document](pi-engine-swap.md) records an earlier transition, not today's wire contract. License and contributor acknowledgements remain in the [repository README](../README.md).
+
+## Session transfer
+
+The sidebar's session menu offers **Export as Markdown…** (readable, anchorless) and **Export session file…** (the lossless `learnharness.session` wrapper: full `ChatRecord` — native messages, plan tree, per-session settings, usage logs, kind, schema stamp). **Import session…** beside the create doors restores either that wrapper or a raw `data/chats/<id>.json` record; an existing id is a two-step replace, and a replace is refused while the session has a live turn/job/extraction. Ctrl/Cmd-click selects sessions without a separate mode; two or more selections raise a sticky bar with Select all (visible rows), Export, Delete, and Cancel. Bulk Export downloads a ZIP of per-session JSON files; bulk Delete uses the same graph-traces choice as the single dialog, continues past failures, and keeps failed rows selected for retry. Import also accepts that ZIP: new sessions restore, existing ids are reported as conflicts with a Replace-all-conflicts action, and per-file failures are listed. ZIPs are bounded at 100 MiB compressed, 500 entries, and 250 MiB uncompressed. The import restores the session record only — graph ledgers and background-job history remain separate stores.
+
+**Schema stamps (2026-10-10):** chat records carry `version` (stamped at the store's write choke point; absence reads as v1 — lazy migration, no mass rewrite), and the graph family (ledgers, sources, render-settings) shares one sidecar `graph/format.json`, created on the family's first write. `positions.json` is deliberately unstamped (rebuildable). A record stamped NEWER than the running build is refused on read — honest refusal for the downgrade scenario: a read-modify-write store never rewrites what it doesn't understand.

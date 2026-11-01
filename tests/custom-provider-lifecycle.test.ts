@@ -8,6 +8,9 @@ import { createCanvas } from "@napi-rs/canvas";
 import { normalizeContext, fauxAssistantMessage, fauxToolCall, type Message } from "@earendil-works/pi-ai";
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-lifecycle-"));
+/** File-tool fixtures live outside the isolated data/auth root: the
+ *  credential guard intentionally blocks reads under `LH_DATA_DIR`. */
+const fileScratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-lifecycle-files-"));
 const originalEnv = process.env;
 const originalFetch = globalThis.fetch;
 process.env = { ...(originalEnv.NODE_TEST_CONTEXT ? { NODE_TEST_CONTEXT: originalEnv.NODE_TEST_CONTEXT } : {}), ...(originalEnv.NODE_OPTIONS ? { NODE_OPTIONS: originalEnv.NODE_OPTIONS } : {}), NODE_ENV: "test", HOME: scratch, LH_DATA_DIR: scratch, LH_AUTH_FILE: path.join(scratch, "auth.json"), LH_IGNORE_ENV_KEYS: "1" };
@@ -38,7 +41,7 @@ beforeEach(() => {
 	requests = []; fs.writeFileSync(path.join(scratch, "auth.json"), "{}"); configure();
 	globalThis.fetch = async (url, init) => { capture(url, init); return answer(); };
 });
-after(() => { process.env = originalEnv; globalThis.fetch = originalFetch; fs.rmSync(scratch, { recursive: true, force: true }); });
+after(() => { process.env = originalEnv; globalThis.fetch = originalFetch; fs.rmSync(scratch, { recursive: true, force: true }); fs.rmSync(fileScratch, { recursive: true, force: true }); });
 
 test("native requests revalidate endpoint/model/key/limits with no fallback and retain in-flight setup", async () => {
 	const engine = piEngineForSpec({ provider: "custom", id: "m" });
@@ -104,7 +107,7 @@ test("actual native encoder preserves USER and tool-result images under missing 
 	assert.deepEqual(piModels().getModel("custom", "m")!.input, ["text"]);
 });
 test("teacher-bound read returns image without contradictory omission note", async () => {
-	const file = path.join(scratch, "synthetic.png"); fs.writeFileSync(file, Buffer.from(image.data, "base64"));
+	const file = path.join(fileScratch, "synthetic.png"); fs.writeFileSync(file, Buffer.from(image.data, "base64"));
 	const engine = piEngineForSpec({ provider: "custom", id: "m" });
 	const result = await createReadTool(engine.model).execute("read-1", { path: file });
 	assert.ok(result.content.some((block) => block.type === "image"));

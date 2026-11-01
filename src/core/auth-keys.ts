@@ -48,6 +48,12 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 		description: "Web-search engine for the researcher sub-agent — the alternative to Tavily. Setting the key activates it.",
 		docsUrl: "https://brave.com/search/api/",
 	},
+	{
+		id: "LOCAL_LLM_API_KEY",
+		label: "Local engine",
+		description: "Optional key for an OpenAI-compatible local server (Strata, Ollama, LM Studio, llama.cpp). Keyless loopback servers work without it.",
+		docsUrl: "https://github.com/Niko1221/Strata/blob/main/docs/AI_REFERENCE.md",
+	},
 ] as const;
 
 const AUTH_KEY_IDS: ReadonlySet<string> = new Set(AUTH_KEYS.map((k) => k.id));
@@ -177,6 +183,9 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
+		case "LOCAL_LLM_API_KEY":
+			// Local servers vary; accept any non-empty, whitespace-free value.
+			return nonEmpty(1);
 		default:
 			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };
 	}

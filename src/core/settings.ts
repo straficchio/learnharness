@@ -314,6 +314,58 @@ export function slotsConfigured(models: ModelsSettings | undefined): boolean {
 	return Boolean(models?.strong?.model && models?.cheap?.model && models?.vision?.model);
 }
 
+// ─── Local engine (OpenAI-compatible) ───────────────────────────────────────
+
+/** Default base URL for a local OpenAI-compatible server. Strata, Ollama,
+ *  LM Studio, llama.cpp, and vLLM all expose this shape; `/v1` is the
+ *  OpenAI path prefix. */
+export const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:8080/v1";
+
+/** Defaults for a locally configured model when the user does not know the
+ *  server's advertised limits. Deliberately modest: a local model that
+ *  advertises 32k is the common case; the UI lets the user raise both. */
+export const DEFAULT_LOCAL_CONTEXT_WINDOW = 32_768;
+export const DEFAULT_LOCAL_MAX_TOKENS = 8_192;
+
+/** One local model entry. The id is sent verbatim as the OpenAI `model`
+ *  field; the name is display-only. No secrets live here. */
+export interface LocalModelSettings {
+	id: string;
+	name?: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	/** Whether the server/model accepts image content parts. */
+	vision?: boolean;
+	/** Whether the model offers a reasoning/thinking control. */
+	reasoning?: boolean;
+}
+
+/** The `local` settings section (non-secret). The optional API key lives
+ *  in auth.json under LOCAL_LLM_API_KEY — never in this record. */
+export interface LocalEngineSettings {
+	enabled?: boolean;
+	baseUrl?: string;
+	model?: LocalModelSettings;
+}
+
+/** Pure base-URL gate for the local engine: http(s), no credentials, no
+ *  fragment/query, bounded length. The UI and the PUT parser share it. */
+export function isLocalBaseUrl(value: string): boolean {
+	if (typeof value !== "string" || value.length === 0 || value.length > 2048) return false;
+	try {
+		const url = new URL(value);
+		return (
+			(url.protocol === "http:" || url.protocol === "https:") &&
+			!url.username &&
+			!url.password &&
+			!url.search &&
+			!url.hash
+		);
+	} catch {
+		return false;
+	}
+}
+
 /** Which slot a role draws from (model slots wave, 2026-09-20). Includes the
  *  conversation pair and pdfReader (not BackgroundModelRoles — the slot
  *  tier spans every role; only background roles surface per-role overrides). */
@@ -331,7 +383,9 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 /** General settings — app-level behavior. Version DISPLAY and plans login
  *  live outside the record (package.json / auth.json) by owner decision. */
 export interface GeneralSettings {
-	/** Automatic startup/24h update checks (default ON). Manual checks bypass this. */
+	/** Auto-update checks (default OFF; the manual "Check for Updates…" entry
+	 *  always works). Electron reads this from settings.json before every
+	 *  automatic check, so the toggle needs no restart. */
 	autoUpdate?: boolean;
 }
 
@@ -474,6 +528,8 @@ export interface UserSettings {
 	models?: ModelsSettings;
 	/** The custom OpenAI-compatible endpoint (non-secret config only). */
 	customProvider?: CustomProviderSettings;
+	/** Local OpenAI-compatible engine (non-secret connection + model). */
+	local?: LocalEngineSettings;
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
@@ -507,7 +563,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true },
+	general: { autoUpdate: false },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -676,6 +732,39 @@ function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSet
 	if (Object.keys(overrides).length) out.overrides = overrides;
 	const manualModels = parseModelIds(raw.manualModels);
 	if (manualModels.length) out.manualModels = manualModels;
+
+	return out;
+}
+
+/** Local engine settings: lenient read side (bad types drop, numbers
+ *  clamp, an unreachable/ill-formed URL drops to the factory default).
+ *  Never throws; an enabled record without a model id is kept but the
+ *  effective view treats the provider as unconfigured. */
+function sanitizeLocal(raw: Record<string, unknown>): LocalEngineSettings {
+	const out: LocalEngineSettings = {};
+	const enabled = boolOrDrop(raw.enabled);
+	if (enabled !== undefined) out.enabled = enabled;
+	if (typeof raw.baseUrl === "string" && isLocalBaseUrl(raw.baseUrl.trim())) {
+		out.baseUrl = raw.baseUrl.trim().replace(/\/+$/, "");
+	}
+	if (raw.model !== null && typeof raw.model === "object" && !Array.isArray(raw.model)) {
+		const m = raw.model as Record<string, unknown>;
+		if (typeof m.id === "string" && m.id.trim() && m.id.trim().length <= 200) {
+			const model: LocalModelSettings = { id: m.id.trim() };
+			if (typeof m.name === "string" && m.name.trim() && m.name.trim().length <= 200) model.name = m.name.trim();
+			if (typeof m.contextWindow === "number" && Number.isFinite(m.contextWindow)) {
+				model.contextWindow = clamp(Math.floor(m.contextWindow), 1_024, 2_000_000);
+			}
+			if (typeof m.maxTokens === "number" && Number.isFinite(m.maxTokens)) {
+				model.maxTokens = clamp(Math.floor(m.maxTokens), 256, 1_000_000);
+			}
+			const vision = boolOrDrop(m.vision);
+			if (vision !== undefined) model.vision = vision;
+			const reasoning = boolOrDrop(m.reasoning);
+			if (reasoning !== undefined) model.reasoning = reasoning;
+			out.model = model;
+		}
+	}
 	return out;
 }
 
@@ -831,6 +920,10 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.customProvider !== null && typeof r.customProvider === "object" && !Array.isArray(r.customProvider)) {
 		out.customProvider = sanitizeCustomProvider(r.customProvider as Record<string, unknown>);
+	}
+	if (r.local !== null && typeof r.local === "object" && !Array.isArray(r.local)) {
+		const local = sanitizeLocal(r.local as Record<string, unknown>);
+		if (Object.keys(local).length) out.local = local;
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);

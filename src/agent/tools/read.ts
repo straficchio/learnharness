@@ -3,15 +3,17 @@ import { Type } from "typebox";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
-import { resolveSourcePath } from "./fs-shared.ts";
+import { resolveAllowedPath } from "./fs-shared.ts";
 import { detectSupportedImageMimeTypeFromFile, processImage } from "../image-processing/index.ts";
+import { redactSecrets } from "./redact.ts";
 
 /**
  * The read tool — sources v0 (2026-09): a Node port of pi's read semantics
  * for the learner's local files. The flow is learner-owned: he pastes file
  * paths into the chat, the agent reads on its own terms (nothing is
- * auto-injected). Unrestricted local reads are the user-decided v0 scope —
- * this is a personal study harness, not a multi-tenant service.
+ * auto-injected). Reads are intentionally broad for study material but go
+ * through the credential-path guard in fs-shared.ts; this is a personal
+ * study harness, not a multi-tenant service.
  *
  * Ported behaviors (mirroring pi's dist/core/tools/read.js):
  * - text files: utf-8, offset (1-indexed) / limit slicing, and the
@@ -90,7 +92,9 @@ export type ReadModel = Pick<Model<Api>, "input" | "inputLimits">;
 /** One implementation for every learner-file reader. Bind the active model
  * per agent, rather than sharing mutable model state between conversations.
  * Home-relative paths, text slicing and the app's abort guard stay unchanged;
- * image detection/processing and its notes follow native Pi read behavior. */
+ * image detection/processing and its notes follow native Pi read behavior.
+ * Every path still resolves through the credential guard, and text output is
+ * redacted before it can reach the model. */
 export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 	return {
 		name: "read",
@@ -98,7 +102,7 @@ export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 		description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50.0KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		parameters: readInput,
 		execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }, { signal }): Promise<string | ImageFileResult> => {
-			const absolute = resolveSourcePath(rawPath);
+			const absolute = await resolveAllowedPath(rawPath);
 			const mime = await detectSupportedImageMimeTypeFromFile(absolute);
 			const buffer = await fs.readFile(absolute, { signal });
 			if (mime) {
@@ -115,7 +119,7 @@ export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 					...(processed.ok ? { images: [{ data: processed.data, mimeType: processed.mimeType }] } : {}),
 				};
 			}
-			return readTextSlice(buffer.toString("utf-8"), offset, limit);
+			return redactSecrets(readTextSlice(buffer.toString("utf-8"), offset, limit));
 		}),
 	};
 }

@@ -87,3 +87,6 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// session-transfer.ts (2026-10-31): the lossless session export/import
+// contract — full ChatRecord, wrapper version, validation, size bound.
+export * from "./session-transfer.ts";

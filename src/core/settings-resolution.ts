@@ -40,11 +40,14 @@ import {
 	type CustomModel,
 	type CustomModelOverride,
 	type GraphSettings,
+	type LocalEngineSettings,
+	type LocalModelSettings,
 	type ModelSlot,
 	type ModelSlotName,
 	type RoleModelOverride,
 	type UserSettings,
 } from "./settings.ts";
+import { DEFAULT_LOCAL_BASE_URL, DEFAULT_LOCAL_CONTEXT_WINDOW, DEFAULT_LOCAL_MAX_TOKENS } from "./settings.ts";
 
 /** A configured model slot: the tier's concrete model, with its optional
  *  thinking level. UNSET level is legal — the engine build resolves it
@@ -65,6 +68,21 @@ export interface EffectiveModelSpec {
 	provider: string;
 	id: string;
 	thinkingLevel?: ThinkingLevel;
+}
+
+/** The resolved local engine: concrete connection + optional model. The
+ *  provider is usable only when enabled AND a model id exists. */
+export interface EffectiveLocalEngine {
+	enabled: boolean;
+	baseUrl: string;
+	model: {
+		id: string;
+		name: string;
+		contextWindow: number;
+		maxTokens: number;
+		vision: boolean;
+		reasoning: boolean;
+	} | null;
 }
 
 /** The concrete appearance view — same shape as the factory's. */
@@ -93,6 +111,8 @@ export interface EffectiveSettings {
 	 *  way down, owner 2026-09-22). These are the tier-level views the
 	 *  picker captions and the per-need refusal gates read. */
 	models: Record<ModelSlotName, EffectiveSlot | null>;
+	/** The resolved local OpenAI-compatible engine (disabled by default). */
+	local: EffectiveLocalEngine;
 	appearance: EffectiveAppearance;
 	graph: Required<GraphSettings>;
 	/** Compaction (owner round 14): resolved concrete — absent record
@@ -142,6 +162,27 @@ export function resolveSlot(slot: ModelSlot | undefined): EffectiveSlot | null {
 	return {
 		provider: slot.model.provider, id: slot.model.id, thinkingLevel: slot.thinkingLevel,
 		...(slot.cacheRetention !== undefined ? { cacheRetention: slot.cacheRetention } : {}),
+	};
+}
+
+/** Resolve the local engine section: defaults are connection facts only;
+ *  the model stays NULL until a valid id lands (no phantom local model). */
+export function resolveLocalEngine(local: LocalEngineSettings | undefined): EffectiveLocalEngine {
+	const model: LocalModelSettings | undefined = local?.model;
+	return {
+		enabled: local?.enabled ?? false,
+		baseUrl: local?.baseUrl ?? DEFAULT_LOCAL_BASE_URL,
+		model:
+			typeof model?.id === "string" && model.id.trim()
+				? {
+						id: model.id.trim(),
+						name: model.name?.trim() || model.id.trim(),
+						contextWindow: model.contextWindow ?? DEFAULT_LOCAL_CONTEXT_WINDOW,
+						maxTokens: model.maxTokens ?? DEFAULT_LOCAL_MAX_TOKENS,
+						vision: model.vision ?? false,
+						reasoning: model.reasoning ?? false,
+					}
+				: null,
 	};
 }
 
@@ -202,6 +243,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			cheap: resolveSlot(modelsSection.cheap),
 			vision: resolveSlot(modelsSection.vision),
 		},
+		local: resolveLocalEngine(record?.local),
 		appearance: {
 			mode: appearance.mode ?? factoryAppearance.mode,
 			background: appearance.background ?? factoryAppearance.background,

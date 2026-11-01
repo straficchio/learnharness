@@ -24,12 +24,13 @@
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, session, shell, powerMonitor } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { readAutoUpdateSetting } = require("./auto-update-policy.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -53,6 +54,7 @@ const PRODUCT_NAME = "LearnHarness";
 app.setName(PRODUCT_NAME);
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
+const SETTINGS_FILE = () => path.join(DATA_DIR(), "settings.json");
 
 /** The packaged standalone server (extraResources → Resources/server).
  *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
@@ -372,6 +374,32 @@ function createWindow(url) {
 	});
 
 	void win.loadURL(url);
+	// Renderer recovery (2026-10-28): Chromium can lose the renderer while
+	// the main process and server keep running. Observed on Wayland/Intel
+	// after an S3 resume as a mapped, fully transparent window with only
+	// the native close button; the renderer process was gone. Reload the
+	// window so a crash or resume cannot leave an invisible app behind.
+	const recoverWindow = (why) => {
+		if (win.isDestroyed()) return;
+		log(`window recovery: ${why}; reloading`);
+		win.webContents.reload();
+	};
+	win.webContents.on("render-process-gone", (_event, details) => {
+		if (details.reason === "clean-exit") return;
+		recoverWindow(`renderer ${details.reason} (exit ${details.exitCode})`);
+	});
+	win.on("unresponsive", () => log("window unresponsive; waiting for Chromium"));
+	const onResume = () => {
+		// Let the compositor and GPU process settle after S3. A dead renderer
+		// is reloaded; a live but stale surface only needs a repaint.
+		setTimeout(() => {
+			if (win.isDestroyed()) return;
+			if (win.webContents.isCrashed()) recoverWindow("system resume");
+			else win.webContents.invalidate();
+		}, 1500);
+	};
+	powerMonitor.on("resume", onResume);
+	win.once("closed", () => powerMonitor.removeListener("resume", onResume));
 	// Zoom truth reaches the renderer for EVERY load (reload, nav): the
 	// renderer's --lh-zoom must never go stale. The fallback catcher below
 	// covers ⌘= / layout variants the menu's ⌘Plus may not claim — menu-
@@ -460,16 +488,12 @@ function reportUpdateStatus(status, version = null) {
 	}
 }
 
-/** Read the SAME data directory passed to the packaged server. Only an
- * explicit false opts out; absent/corrupt/unreadable settings keep updates ON.
- * Re-read for each automatic check so saving the toggle needs no restart. */
+/** Read the SAME data directory passed to the packaged server. The policy
+ * seam (electron/auto-update-policy.cjs) fails closed: only an explicit
+ * `general.autoUpdate: true` enables automatic updates. Re-read for each
+ * automatic check so saving the toggle needs no restart. */
 function automaticUpdatesEnabled() {
-	try {
-		const settings = JSON.parse(fs.readFileSync(path.join(DATA_DIR(), "settings.json"), "utf8"));
-		return settings?.general?.autoUpdate !== false;
-	} catch {
-		return true;
-	}
+	return readAutoUpdateSetting(SETTINGS_FILE(), fs);
 }
 
 function checkForUpdates({ manual = false } = {}) {
@@ -491,6 +515,15 @@ function checkForUpdates({ manual = false } = {}) {
 			log(`update check failed: ${err?.message ?? err}`);
 			reportUpdateStatus("error");
 		});
+}
+
+/** Renderer push after the Settings toggle writes the record. Enabling
+ *  checks immediately instead of waiting for the next 24h tick; disabling
+ *  needs no timer surgery because every automatic check re-reads the
+ *  record through automaticUpdatesEnabled(). */
+function setAutoUpdate(enabled) {
+	if (typeof enabled !== "boolean") return;
+	if (enabled) checkForUpdates();
 }
 
 function installUpdateNow() {
@@ -724,6 +757,10 @@ async function main() {
 	ipcMain.handle("lh:update:check", (event) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
 		checkForUpdates({ manual: true });
+	});
+	ipcMain.on("lh:update-auto", (event, enabled) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return;
+		setAutoUpdate(enabled);
 	});
 
 	// Sidebar-at-narrow-window (owner, 2026-09-17): the renderer auto-closes

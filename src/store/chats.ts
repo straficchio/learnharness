@@ -76,6 +76,19 @@ function getChat(id: string): ChatRecord | null {
 	return parsed as ChatRecord;
 }
 
+/** Restore a full session record from the lossless export. The caller owns
+ *  validation and the replace-confirmation gate; this store only enforces
+ *  the id/file collision and preserves the record's own timestamps and
+ *  state. */
+function importChat(record: ChatRecord, options: { replace?: boolean } = {}): ChatRecord | null {
+	const file = chatFile(record.id);
+	if (!options.replace && fs.existsSync(file)) return null;
+	fs.mkdirSync(PATHS.chats, { recursive: true });
+	writeChat(record);
+	emit("chats-changed", {});
+	return { ...record, version: CURRENT_CHAT_VERSION };
+}
+
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
@@ -208,6 +221,7 @@ function saveTree(id: string, tree: PlanTree): void {
 export const chatStore: ChatStore = {
 	createChat,
 	getChat,
+	importChat,
 	listChats,
 	saveMessages,
 	saveTree,

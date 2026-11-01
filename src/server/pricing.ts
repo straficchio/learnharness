@@ -18,6 +18,9 @@ function catalogModel(id: string) {
 }
 
 export function callCost(call: Partial<CallUsage>, modelId: string): number | null {
+	// Local models have no provider price; everything is already paid for
+	// on the user's machine. Keep the usage tokens, but cost exactly zero.
+	if (modelId.startsWith("local:")) return 0;
 	const model = catalogModel(modelId);
 	if (!model || call.inputTokens === undefined || call.outputTokens === undefined) return null;
 	const input = call.inputTokens;

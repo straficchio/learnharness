@@ -49,6 +49,9 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			this.messages.push({ channel, value: JSON.parse(JSON.stringify(value)) });
 		}
 		isLoadingMainFrame() { return this.loading; }
+		reload() {}
+		isCrashed() { return false; }
+		invalidate() {}
 		setWindowOpenHandler() {}
 		getZoomFactor() { return 1; }
 	}
@@ -58,6 +61,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		focused = false;
 		constructor() { super(); windows.push(this); }
 		loadURL() { this.webContents.loading = true; }
+		isDestroyed() { return false; }
 		isMinimized() { return this.minimized; }
 		restore() { this.minimized = false; }
 		focus() { this.focused = true; }
@@ -82,6 +86,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		app, BrowserWindow: FakeWindow,
 		Menu: { buildFromTemplate: (value: typeof menu) => value, setApplicationMenu: (value: typeof menu) => { menu = value; } },
 		ipcMain: { on() {}, handle: (channel: string, fn: (event: unknown) => unknown) => handles.set(channel, fn) },
+		powerMonitor: new EventEmitter(),
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = createContext({
@@ -96,7 +101,9 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 					settingsReads.push(file);
 					if (settings instanceof Error) throw settings;
 					return settings;
-				}, mkdirSync() {}, appendFileSync() {},
+				},
+				statSync: () => ({ isFile: () => true, size: settings instanceof Error ? 0 : settings.length }),
+				mkdirSync() {}, appendFileSync() {},
 			};
 			return mainRequire(id);
 		},
@@ -135,19 +142,23 @@ describe("automatic-update preference gate", () => {
 		assert.equal(f.updater.autoInstallOnAppQuit, true);
 	});
 
+	it("explicit ON enables automatic checks", async () => {
+		const f = fixture(); f.setSettings({ general: { autoUpdate: true } }); f.run("setupAutoUpdater()"); await f.check();
+		assert.equal(f.updater.checks, 1);
+	});
 	for (const [label, setting] of [
-		["ON", { general: { autoUpdate: true } }], ["absent field", { general: {} }],
+		["absent field", { general: {} }],
 		["absent section", { version: 1 }], ["null", null], ["non-boolean", { general: { autoUpdate: "false" } }],
 	] as const) {
-		it(`${label} keeps automatic checks enabled`, async () => {
+		it(`${label} keeps automatic checks disabled`, async () => {
 			const f = fixture(); f.setSettings(setting); f.run("setupAutoUpdater()"); await f.check();
-			assert.equal(f.updater.checks, 1);
+			assert.equal(f.updater.checks, 0);
 		});
 	}
 	for (const [label, failure] of [["missing", new Error("ENOENT")], ["unreadable", new Error("EACCES")], ["corrupt", "{nope"]] as const) {
-		it(`${label} settings keep automatic checks enabled`, async () => {
+		it(`${label} settings fail closed and keep automatic checks disabled`, async () => {
 			const f = fixture(); f.setSettingsFailure(failure); f.run("setupAutoUpdater()"); await f.check();
-			assert.equal(f.updater.checks, 1);
+			assert.equal(f.updater.checks, 0);
 		});
 	}
 
@@ -245,8 +256,8 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		assert.equal(f.updater.checks, 2, "checks also work with every window closed");
 	});
 
-	it("ON/default boot checks immediately and status never disables the scheduled check", async () => {
-		const f = fixture(); f.setSettings({ version: 1 }); await f.run("main()");
+	it("ON boot checks immediately and status never disables the scheduled check", async () => {
+		const f = fixture(); f.setSettings({ general: { autoUpdate: true } }); await f.run("main()");
 		assert.equal(f.updater.checks, 1);
 		f.run('reportUpdateStatus("downloading", "0.3.8")'); f.intervals[0]!.callback(); await Promise.resolve();
 		assert.equal(f.updater.checks, 2);

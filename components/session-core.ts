@@ -291,7 +291,22 @@ export class SessionModel {
 			this.statusValue === "submitted" || this.statusValue === "streaming"
 				? { executions: this.executions, inFlight: true, streamingIds: this.streamingIds }
 				: undefined;
-		const messages = [...this.base, ...this.tail];
+		const baseIds = new Set<string>();
+		for (const m of this.base) {
+			const id = (m as { id?: string }).id;
+			if (typeof id === "string") baseIds.add(id);
+		}
+		// THE DUPLICATE-KEY GUARD (2026-10-30): the record is canon; a tail
+		// entry whose id the record already carries is the same message (the
+		// stream replayed a persisted steer). Rendering both duplicates the
+		// React key and double-counts the message for continuation/context.
+		const messages = [
+			...this.base,
+			...this.tail.filter((m) => {
+				const id = (m as { id?: string }).id;
+				return typeof id !== "string" || !baseIds.has(id);
+			}),
+		];
 		const latest = failedResponseAtEnd(messages);
 		// Presentation/compaction markers do not resolve a failure. While
 		// trying again, hide the old banner from the first Thinking frame,
@@ -400,6 +415,12 @@ export class SessionModel {
 					// live stream dropped the marker until the settle sync.
 					const mid = message.id;
 					if (mid === undefined) return false;
+					// THE DUPLICATE-KEY GUARD (2026-10-30): the server persists a
+					// steer in the record BEFORE the stream replays it as a custom
+					// message. When the record already carries this id (an adoption
+					// or the mount snapshot landed first), the base copy is canon —
+					// appending it to the tail would render the same marker twice.
+					if (this.base.some((m) => (m as { id?: string }).id === mid)) return false;
 					this.mutate(() => {
 						const idx = this.tail.findIndex((m) => m.id === mid);
 						this.tail =
@@ -946,7 +967,15 @@ export class SessionModel {
 		this.mutate(() => {
 			this.base = record;
 			this.forgetResolvedDrafts(record);
-			this.tail = this.tail.filter((m) => !absorbed(m, record));
+			// Drop both the optimistic entries the record absorbed AND any
+			// tail copy whose id the record now carries (a streamed steer the
+			// write-ahead persisted first — the duplicate-key incident of
+			// 2026-10-30). A `c_` entry is never matched by id here.
+			this.tail = this.tail.filter((m) => {
+				const id = (m as { id?: string }).id;
+				if (typeof id === "string" && recordIds.has(id)) return false;
+				return !absorbed(m, record);
+			});
 		});
 	}
 

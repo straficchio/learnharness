@@ -22,11 +22,20 @@ import type {
 	GeneralSettings,
 	DictationSettings,
 	GraphSettings,
+	LocalEngineSettings,
 	ModelsSettings,
 	ModelSlot,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import {
+	BACKGROUND_MODEL_ROLES,
+	CACHE_RETENTIONS,
+	COMPACTION_THRESHOLD_FLOOR,
+	CUSTOM_MODEL_PIN_FLOOR,
+	EXTRACTION_CHUNK_TOKENS_FLOOR,
+	MODEL_SLOTS,
+	isLocalBaseUrl,
+} from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
@@ -444,8 +453,70 @@ export function parseCustomModelOverridesBody(
 	return { ok: true, settings: out };
 }
 
-/** The section→parser map for PUT /api/settings/[section]. The custom endpoint
- *  is NOT a section — it connects via POST /api/custom-provider. */
+/** local: { enabled?, baseUrl?, model? } — the OpenAI-compatible local
+ *  engine. Non-secret; the optional key lives in auth.json. Strict write
+ *  side: an enabled engine must name a model id; URL must be http(s) with
+ *  no credentials/query/fragment. */
+export function parseLocalEngineBody(body: unknown): SettingsBodyResult<LocalEngineSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: LocalEngineSettings = {};
+	if (raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
+		settings.enabled = raw.enabled;
+	}
+	if (raw.baseUrl !== undefined) {
+		if (typeof raw.baseUrl !== "string") return { ok: false, error: "baseUrl must be a string" };
+		const baseUrl = raw.baseUrl.trim().replace(/\/+$/, "");
+		if (!isLocalBaseUrl(baseUrl)) {
+			return { ok: false, error: "baseUrl must be an http(s) URL with no credentials, query, or fragment" };
+		}
+		settings.baseUrl = baseUrl;
+	}
+	if (raw.model !== undefined) {
+		const model = asRecord(raw.model);
+		if (!model) return { ok: false, error: "model must be an object" };
+		if (typeof model.id !== "string" || !model.id.trim() || model.id.trim().length > 200) {
+			return { ok: false, error: "model.id must be a non-empty string (max 200 chars)" };
+		}
+		const parsed: NonNullable<LocalEngineSettings["model"]> = { id: model.id.trim() };
+		if (model.name !== undefined) {
+			if (typeof model.name !== "string" || model.name.trim().length > 200) {
+				return { ok: false, error: "model.name must be a string (max 200 chars)" };
+			}
+			if (model.name.trim()) parsed.name = model.name.trim();
+		}
+		if (model.contextWindow !== undefined) {
+			if (typeof model.contextWindow !== "number" || !Number.isInteger(model.contextWindow) || model.contextWindow < 1_024 || model.contextWindow > 2_000_000) {
+				return { ok: false, error: "model.contextWindow must be an integer between 1024 and 2000000" };
+			}
+			parsed.contextWindow = model.contextWindow;
+		}
+		if (model.maxTokens !== undefined) {
+			if (typeof model.maxTokens !== "number" || !Number.isInteger(model.maxTokens) || model.maxTokens < 256 || model.maxTokens > 1_000_000) {
+				return { ok: false, error: "model.maxTokens must be an integer between 256 and 1000000" };
+			}
+			parsed.maxTokens = model.maxTokens;
+		}
+		if (model.vision !== undefined) {
+			if (typeof model.vision !== "boolean") return { ok: false, error: "model.vision must be a boolean" };
+			parsed.vision = model.vision;
+		}
+		if (model.reasoning !== undefined) {
+			if (typeof model.reasoning !== "boolean") return { ok: false, error: "model.reasoning must be a boolean" };
+			parsed.reasoning = model.reasoning;
+		}
+		settings.model = parsed;
+	}
+	if (settings.enabled === true && !settings.model?.id) {
+		return { ok: false, error: "model.id is required when the local engine is enabled" };
+	}
+	return { ok: true, settings };
+}
+
+/** The section→parser map for PUT /api/settings/[section] (the route also
+ *  carries the special prompts sub-resource). The custom endpoint is NOT a
+ *  section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
 	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
@@ -456,6 +527,7 @@ export const SETTINGS_SECTIONS = {
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
+	local: parseLocalEngineBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

@@ -13,6 +13,8 @@ import { jobStore } from "../store/jobs.ts";
 import { settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { syncCustomProvider } from "./custom-provider.ts";
+import { configureLocalEngine } from "../agent/models.ts";
+import type { UserSettings } from "../core/settings.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
 	chatStore,
@@ -24,6 +26,13 @@ export const stores = {
 
 export type Stores = typeof stores;
 
+/** Keep the process-wide pi-ai collection's local provider in sync with
+ *  the settings record. Cheap when unchanged (signature check inside
+ *  configureLocalEngine). Called by every catalog read and turn resolve. */
+export function syncLocalEngine(record: UserSettings | null = settingsStore.readSettings()): void {
+	configureLocalEngine(resolveSettings(record).local);
+}
+
 /**
  * The resolved view of the settings record (core/settings-resolution.ts):
  * every knob concrete over its factory default — EXCEPT MODELS (BYOK all
@@ -33,7 +42,10 @@ export type Stores = typeof stores;
  * no caching layer (stale toggles after a settings PUT would be worse).
  */
 export function effectiveSettings(): EffectiveSettings {
-	return resolveSettings(settingsStore.readSettings());
+	const record = settingsStore.readSettings();
+	const effective = resolveSettings(record);
+	configureLocalEngine(effective.local);
+	return effective;
 }
 
 // Boot: register the custom endpoint (when configured) into piModels(); the

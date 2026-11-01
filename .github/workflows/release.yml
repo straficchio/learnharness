@@ -3,8 +3,9 @@ name: Desktop release
 on:
   push:
     tags: ["v*"]
-  # Manual runs are artifact-only, unsigned, and NEVER create a release.
-  # Use this for the first Windows/Linux dress rehearsal without secrets.
+  # Manual runs build unsigned installers for macOS, Windows, and Linux as
+  # workflow artifacts, and NEVER create a release. Use this for a full
+  # three-platform build without signing/notarization secrets.
   workflow_dispatch:
 
 permissions:
