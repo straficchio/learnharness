@@ -20,28 +20,55 @@ trap cleanup EXIT INT TERM
 
 cd "$ROOT"
 
-if curl -fsS --max-time 1 "$URL/" >/dev/null 2>&1; then
+server_ready() {
+  curl -fsS --max-time 3 "$URL/api/settings" 2>/dev/null | grep -q '"settings"'
+}
+
+port_in_use() {
+  ss -ltn "sport = :$PORT" 2>/dev/null | grep -q LISTEN
+}
+
+if server_ready; then
   echo "[desktop-dev] using the dev server already listening at $URL"
 else
-  echo "[desktop-dev] starting Next dev at $URL"
-  ./node_modules/.bin/next dev -H 127.0.0.1 -p "$PORT" &
-  NEXT_PID=$!
-
-  ready=0
-  for _ in $(seq 1 240); do
-    if ! kill -0 "$NEXT_PID" 2>/dev/null; then
-      echo "[desktop-dev] Next dev exited before becoming ready"
+  if port_in_use; then
+    # The port may belong to a dev server that is still compiling /api/settings.
+    # Never start a second Next process just because the first health probe lost
+    # a race: wait for the existing LearnHarness server instead.
+    echo "[desktop-dev] port $PORT is in use; waiting for LearnHarness to answer"
+    ready=0
+    for _ in $(seq 1 240); do
+      if server_ready; then
+        ready=1
+        break
+      fi
+      sleep 0.5
+    done
+    if [[ "$ready" != "1" ]]; then
+      echo "[desktop-dev] port $PORT is in use but LearnHarness did not answer"
       exit 1
     fi
-    if curl -fsS --max-time 1 "$URL/" >/dev/null 2>&1; then
-      ready=1
-      break
+  else
+    echo "[desktop-dev] starting Next dev at $URL"
+    ./node_modules/.bin/next dev -H 127.0.0.1 -p "$PORT" &
+    NEXT_PID=$!
+
+    ready=0
+    for _ in $(seq 1 240); do
+      if ! kill -0 "$NEXT_PID" 2>/dev/null; then
+        echo "[desktop-dev] Next dev exited before becoming ready"
+        exit 1
+      fi
+      if server_ready; then
+        ready=1
+        break
+      fi
+      sleep 0.5
+    done
+    if [[ "$ready" != "1" ]]; then
+      echo "[desktop-dev] Next dev did not answer within 120 seconds"
+      exit 1
     fi
-    sleep 0.5
-  done
-  if [[ "$ready" != "1" ]]; then
-    echo "[desktop-dev] Next dev did not answer within 120 seconds"
-    exit 1
   fi
 fi
 
