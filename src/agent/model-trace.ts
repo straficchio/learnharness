@@ -272,16 +272,20 @@ export function readModelTrace(sessionId: string, after = 0): { events: unknown[
 	} catch {
 		return { events: [], total: 0 };
 	}
-	const lines = text.split("\n").filter(Boolean);
+	const all = text.split("\n");
+	// A poll can race an append: drop the final element unconditionally. It is
+	// either the terminator of the last complete line or a partial tail that
+	// the next poll re-reads complete.
+	all.pop();
 	const events: unknown[] = [];
-	for (let index = after; index < lines.length; index++) {
+	for (let index = after; index < all.length; index++) {
 		try {
-			events.push(JSON.parse(lines[index]!));
+			events.push(JSON.parse(all[index]!));
 		} catch {
-			events.push({ kind: "parse-error", raw: lines[index]!.slice(0, 500) });
+			events.push({ kind: "parse-error", raw: all[index]!.slice(0, 500) });
 		}
 	}
-	return { events, total: lines.length };
+	return { events, total: all.length };
 }
 
 export function clearModelTrace(sessionId: string): void {

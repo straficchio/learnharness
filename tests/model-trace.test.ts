@@ -155,6 +155,19 @@ test("readModelTrace returns a tail from the requested line and the total", (t) 
 	assert.deepEqual(tail.events.map((event) => (event as { note?: string }).note), ["three"]);
 });
 
+test("a partial trailing append is not counted until it is complete", (t) => {
+	reset(t);
+	trace.configureModelTrace(true);
+	trace.traceNote("partial-session", "complete");
+	const file = path.join(traceDir, "partial-session.jsonl");
+	fs.appendFileSync(file, '{"kind":"note","note":"partial"');
+	assert.equal(trace.readModelTrace("partial-session").total, 1, "the incomplete line waits for the next poll");
+	fs.appendFileSync(file, "}\n");
+	const tail = trace.readModelTrace("partial-session", 1);
+	assert.equal(tail.total, 2);
+	assert.equal((tail.events[0] as { note?: string }).note, "partial");
+});
+
 test("the per-session cap stops recording and appends one note", (t) => {
 	reset(t);
 	trace.configureModelTrace(true);
