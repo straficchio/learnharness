@@ -20,7 +20,7 @@ import {
 } from "@earendil-works/pi-ai";
 
 import { externalCliEnv } from "../../core/auth-env.ts";
-import { traceCliEvent, traceCliRequest, traceToolResult } from "../model-trace.ts";
+import { traceCliEvent, traceCliRequest, traceMcpCall, traceNote, traceToolIntent, traceToolResult } from "../model-trace.ts";
 import { parseAgyLine, type AgyEvent, type AgyUsage } from "./cli-events.ts";
 import { AGY_DEFAULT_MODEL_ID, AntigravityCliError } from "./constants.ts";
 import { AgyLaunchError, createAgyLauncher } from "./launch.ts";
@@ -236,6 +236,15 @@ function stripToolSummary(parameters: JsonObject): JsonObject {
 	return rest as JsonObject;
 }
 
+/** Names only — enough to point at the disagreement without copying the
+ *  (possibly long, learner-authored) values into the chat error. */
+function differingToolFields(intent: JsonObject, call: JsonObject): string[] {
+	const left = intent as Record<string, unknown>;
+	const right = call as Record<string, unknown>;
+	return [...new Set([...Object.keys(left), ...Object.keys(right)])]
+		.filter((key) => !isDeepStrictEqual(left[key], right[key]));
+}
+
 function resultError(event: Extract<AgyEvent, { type: "result" }>): string {
 	const error = event.error?.trim();
 	if (error && /authentication required|not signed in|login required|unauthorized|\b401\b/i.test(error)) {
@@ -255,6 +264,7 @@ class AgyProcess implements LiveProcess {
 	private killTimer: NodeJS.Timeout | undefined;
 	private signal: AbortSignal | undefined;
 	private readonly intents = new Map<number, AgyToolIntent>();
+	private readonly tracedCalls = new Set<AgyPendingToolCall>();
 	private readonly admittedSteps = new Set<number>();
 	private readonly allowedNativeSteps = new Set<number>();
 	private readonly blockedNativeSteps = new Set<number>();
@@ -368,10 +378,16 @@ class AgyProcess implements LiveProcess {
 		}
 
 		const call = pending[0]!;
+		if (!this.tracedCalls.has(call)) {
+			this.tracedCalls.add(call);
+			traceMcpCall(this.sessionId, call);
+		}
 		const intent = this.intents.get(call.stepIndex);
 		if (!intent) return;
 		if (intent.name !== call.name || !isDeepStrictEqual(intent.arguments, call.arguments)) {
-			this.fail("agy CLI compatibility error: MCP call does not match its streamed tool intent");
+			const fields = differingToolFields(intent.arguments, call.arguments);
+			traceNote(this.sessionId, `harness tool mismatch at step ${call.stepIndex}: streamed ${intent.name}, MCP ${call.name}${fields.length > 0 ? ` — differing fields: ${fields.join(", ")}` : ""}`);
+			this.fail(`agy CLI compatibility error: MCP call does not match its streamed tool intent (${call.name}, step ${call.stepIndex}${fields.length > 0 ? `; differing fields: ${fields.join(", ")}` : ""})`);
 			return;
 		}
 
@@ -445,7 +461,9 @@ class AgyProcess implements LiveProcess {
 					return;
 				}
 				if (this.admittedSteps.has(event.stepIndex)) return;
-				this.intents.set(event.stepIndex, { stepIndex: event.stepIndex, name: harnessName, arguments: stripToolSummary(event.parameters) });
+				const intent = { stepIndex: event.stepIndex, name: harnessName, arguments: stripToolSummary(event.parameters) };
+				this.intents.set(event.stepIndex, intent);
+				traceToolIntent(this.sessionId, intent);
 				this.flushAdmissions();
 				return;
 			}

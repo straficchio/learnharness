@@ -247,6 +247,8 @@ test("CLI helpers record the launch request, raw lines and tool results", (t) =>
 		imagePaths: ["/tmp/image.png"],
 	});
 	trace.traceCliEvent("cli-session", '{"type":"step"}');
+	trace.traceToolIntent("cli-session", { stepIndex: 2, name: "probe", arguments: { question: "streamed" } });
+	trace.traceMcpCall("cli-session", { id: "conv:2", stepIndex: 2, name: "probe", arguments: { question: "actual" } });
 	trace.traceToolResult("cli-session", {
 		role: "toolResult",
 		toolCallId: "call-1",
@@ -256,9 +258,11 @@ test("CLI helpers record the launch request, raw lines and tool results", (t) =>
 		timestamp: 3,
 	});
 	const recorded = events("cli-session");
-	assert.deepEqual(recorded.map((event) => event.kind), ["cli-request", "cli-event", "tool-result"]);
+	assert.deepEqual(recorded.map((event) => event.kind), ["cli-request", "cli-event", "tool-intent", "mcp-call", "tool-result"]);
 	assert.equal(recorded[0]!.systemPrompt, "CLI SYSTEM");
 	assert.equal(recorded[1]!.line, '{"type":"step"}');
+	assert.deepEqual(recorded[2]!.arguments, { question: "streamed" });
+	assert.deepEqual(recorded[3]!.arguments, { question: "actual" });
 });
 
 test("GET /api/model-trace validates the session and the after index", async (t) => {

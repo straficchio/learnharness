@@ -333,6 +333,20 @@ test("an MCP call whose tool does not match the streamed intent fails closed", a
 	assert.match(getError(events).error.errorMessage ?? "", /does not match/);
 });
 
+test("argument drift between the streamed intent and the MCP call names the differing fields", async (t) => {
+	const { runAgy } = createFakeRun(t, [
+		JSON.stringify({
+			fake: "call", stepIndex: 2, name: "echo",
+			streamArguments: { text: "streamed" }, arguments: { text: "actual" },
+			progressToken: PROGRESS_TOKEN,
+		}),
+	]);
+	const events = await runTurn(runAgy, [HI], [ECHO_TOOL]);
+	const message = getError(events).error.errorMessage ?? "";
+	assert.match(message, /does not match/);
+	assert.match(message, /differing fields: text/);
+});
+
 test("abort kills the child and ends the stream as aborted", async (t) => {
 	const { runAgy, calls } = createFakeRun(t, [JSON.stringify({ fake: "hold" })]);
 	const controller = new AbortController();

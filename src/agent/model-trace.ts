@@ -56,6 +56,8 @@ export type TraceKind =
 	| "payload"
 	| "http"
 	| "cli-event"
+	| "tool-intent"
+	| "mcp-call"
 	| "tool-result"
 	| "response"
 	| "error"
@@ -170,6 +172,23 @@ export function traceCliRequest(
 
 export function traceCliEvent(sessionId: string | undefined, line: string): void {
 	write(sessionId, "cli-event", { line });
+}
+
+/** The CLI's streamed announcement of a harness tool step. Compared against
+ *  the authenticated MCP request before the harness admits side effects. */
+export function traceToolIntent(
+	sessionId: string | undefined,
+	input: { stepIndex: number; name: string; arguments: unknown },
+): void {
+	write(sessionId, "tool-intent", input as unknown as Record<string, unknown>);
+}
+
+/** The authenticated MCP call as received by the harness bridge. */
+export function traceMcpCall(
+	sessionId: string | undefined,
+	input: { id: string; stepIndex: number; name: string; arguments: unknown },
+): void {
+	write(sessionId, "mcp-call", input as unknown as Record<string, unknown>);
 }
 
 export function traceToolResult(sessionId: string | undefined, message: ToolResultMessage): void {

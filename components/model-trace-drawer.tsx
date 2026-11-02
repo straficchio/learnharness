@@ -232,7 +232,7 @@ export function ModelTraceDrawer({
 				onClick={() => void toggle()}
 				className={`relative h-5 w-9 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed ${enabled ? "bg-primary" : "bg-border"}`}
 			>
-				<span className={`absolute top-0.5 size-4 rounded-full bg-background transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+				<span className={`absolute left-0 top-0.5 size-4 rounded-full bg-background transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
 			</button>
 			<span role="status" className="text-xs text-muted-foreground">{enabled ? "Recording" : "Off — enable to record new calls"}</span>
 			{turns.length > 1 && <select

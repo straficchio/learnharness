@@ -123,14 +123,15 @@ for (const raw of lines) {
 	if (directive.fake === "call") {
 		bridge ??= await connectBridge();
 		const streamName = directive.streamName ?? directive.name;
-		await toolEvent(directive.stepIndex, "ACTIVE", `mcp_learnharness_${streamName}`, directive.arguments ?? {});
+		const streamArguments = directive.streamArguments ?? directive.arguments ?? {};
+		await toolEvent(directive.stepIndex, "ACTIVE", `mcp_learnharness_${streamName}`, streamArguments);
 		const result = await bridge.callTool({
 			name: directive.name,
 			arguments: directive.arguments ?? {},
 			...(directive.progressToken !== undefined ? { _meta: { progressToken: directive.progressToken } } : {}),
 		});
 		const output = directive.output ?? result.content.map((block) => block.text ?? "").join("");
-		await toolEvent(directive.stepIndex, "DONE", `mcp_learnharness_${streamName}`, directive.arguments ?? {}, { output });
+		await toolEvent(directive.stepIndex, "DONE", `mcp_learnharness_${streamName}`, streamArguments, { output });
 		continue;
 	}
 	if (directive.fake === "abandon") {
