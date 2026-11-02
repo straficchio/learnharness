@@ -117,6 +117,7 @@ catalog updates can reprice history. Saved native messages are not mutated.
 | Native API providers | Estimate dollars when the catalog model and required usage detail are available. |
 | Built-in subscription connections | Explicit logical provider IDs identify plan usage, not API dollars. This includes ChatGPT and the native subscription providers, not models merely named after them. |
 | [Claude Code](claude-code.md) | Retain CLI-reported tokens, but leave dollar costs unpriced. The UI labels CLI billing; the CLI owns routing/authentication and there is no subscription-only guarantee. Successful CLI result-line dollar totals are not imported. |
+| [Antigravity CLI](antigravity-cli.md) | Retain per-step CLI token counts, but leave dollar costs unpriced and the context maximum unknown. The UI labels CLI billing; the CLI owns routing/authentication and there is no subscription-only guarantee. |
 | [Custom/local endpoint](custom-providers.md) | Retain token usage, but leave prices unknown/unpriced, even for a locally hosted model. Internal zero-rate placeholders do not mean free inference; there is no rates editor. |
 
 Mixed sessions sum only known API-dollar estimates and retain subscription/CLI

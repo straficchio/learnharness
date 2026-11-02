@@ -43,6 +43,7 @@ The packaged desktop host sets its own data/auth locations under Electron `userD
 Provider-specific references:
 
 - [Claude Code](claude-code.md): opt-in local CLI setup, native authentication, process/tool bridge and session lifecycle. Its CLI authentication is not configured by adding an ordinary LearnHarness API key.
+- [Antigravity CLI](antigravity-cli.md): opt-in `agy` setup, isolated CLI home, direct MCP tool bridge, model/effort discovery, image path reads, and process lifecycle.
 - [Custom providers](custom-providers.md): the supported OpenAI-compatible endpoint editor, authentication binding, models and limits.
 - [Compaction and accounting](compaction-accounting.md): context fitting, usage and current-catalog pricing. There is no generated local rate-table maintenance step.
 

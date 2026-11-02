@@ -31,6 +31,7 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
+import { ANTIGRAVITY_CLI_PROVIDER } from "./contracts/antigravity-cli.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -159,10 +160,16 @@ export interface ProviderKeyMissing {
  * (the label prefix varies by provider). */
 const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
 const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable and set it up in Settings → Providers.";
+const ANTIGRAVITY_CLI_UNAVAILABLE = "Antigravity CLI is unavailable. Enable and set it up in Settings → Providers.";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
 	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
+	const error = provider === CLAUDE_CODE_PROVIDER
+		? CLAUDE_CODE_UNAVAILABLE
+		: provider === ANTIGRAVITY_CLI_PROVIDER
+			? ANTIGRAVITY_CLI_UNAVAILABLE
+			: `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`;
 	return {
-		error: provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_UNAVAILABLE : `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
+		error,
 		code: PROVIDER_KEY_MISSING_CODE,
 		provider,
 		slots,
@@ -173,7 +180,7 @@ export function providerKeyMissing(provider: string, slots: ModelSlotName[]): Pr
  * scary-error) — the envelope's home module owns the string so the
  * writer and the matcher can never drift. */
 export function isProviderKeyRefusal(error: string | undefined): boolean {
-	return !!error && (error.endsWith(PROVIDER_KEY_MISSING_TAIL) || error === CLAUDE_CODE_UNAVAILABLE);
+	return !!error && (error.endsWith(PROVIDER_KEY_MISSING_TAIL) || error === CLAUDE_CODE_UNAVAILABLE || error === ANTIGRAVITY_CLI_UNAVAILABLE);
 }
 /** The typed throw for in-process seams (extraction pipeline) — the
  * ProviderKeyMissing sibling of ModelsNotConfiguredError: callers catch
@@ -523,6 +530,8 @@ export interface UserSettings {
 	dictation?: DictationSettings;
 	/** Explicit app-wide opt-in; absent/invalid is off, including older records. */
 	claudeCode?: { enabled?: boolean };
+	/** Explicit app-wide opt-in for the externally installed Antigravity CLI. */
+	antigravityCli?: { enabled?: boolean };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
@@ -905,6 +914,12 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.claudeCode !== undefined) {
 		const raw = r.claudeCode;
 		out.claudeCode = raw !== null && typeof raw === "object" && !Array.isArray(raw)
+			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
+			? { enabled: (raw as { enabled: boolean }).enabled } : {};
+	}
+	if (r.antigravityCli !== undefined) {
+		const raw = r.antigravityCli;
+		out.antigravityCli = raw !== null && typeof raw === "object" && !Array.isArray(raw)
 			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
 			? { enabled: (raw as { enabled: boolean }).enabled } : {};
 	}

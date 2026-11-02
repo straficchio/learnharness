@@ -19,7 +19,10 @@
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { piModels } from "../agent/models.ts";
+import { piModels, setAntigravityModels } from "../agent/models.ts";
+import { antigravityCliAvailable } from "./antigravity-cli-config.ts";
+import { ANTIGRAVITY_CLI_PROVIDER } from "../agent/antigravity-cli/constants.ts";
+import { discoverAgyModels, invalidateAgyModelCache } from "../agent/antigravity-cli/model-discovery.ts";
 import { customProviderAvailable } from "./custom-provider.ts";
 import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
 import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
@@ -29,10 +32,24 @@ export async function refreshConnectionCatalog(provider?: string): Promise<void>
 	await Promise.all([
 		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
 		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
+		!provider || provider === ANTIGRAVITY_CLI_PROVIDER ? refreshAntigravityCatalog() : Promise.resolve(),
 	]);
 }
+
+async function refreshAntigravityCatalog(): Promise<void> {
+	if (!antigravityCliAvailable()) return;
+	const models = await discoverAgyModels();
+	if (models) setAntigravityModels(models);
+}
+
+/** Opt-in writes invalidate the listing so the next catalog read re-discovers. */
+export function invalidateAntigravityCatalog(): void {
+	invalidateAgyModelCache();
+}
+
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
 	if (provider === CLAUDE_CODE_PROVIDER && !claudeCodeAvailable()) return undefined;
+	if (provider === ANTIGRAVITY_CLI_PROVIDER && !antigravityCliAvailable()) return undefined;
 	return provider === "chatgpt" ? chatGPTModel(id) : nativeSubscriptionId(provider) ? nativeSubscriptionModel(provider, id) : piModels().getModel(provider, id);
 }
 function connectionProviderIds(): string[] {
@@ -159,6 +176,7 @@ export function catalogProviders(): CatalogProvider[] {
 	})).concat([
 		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
 		{ id: CLAUDE_CODE_PROVIDER, envVar: "", keyPresent: claudeCodeAvailable() },
+		{ id: ANTIGRAVITY_CLI_PROVIDER, envVar: "", keyPresent: antigravityCliAvailable() },
 		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
 		// The custom endpoint: a row only when usable (base URL set). keyPresent
 		// reflects usability, not key presence (keyless local servers are allowed).
@@ -190,14 +208,14 @@ export function toModelDto(model: Model<Api>): ModelDto {
 		reasoning: model.reasoning,
 		input: [...model.input],
 		supportedLevels: getSupportedThinkingLevels(model),
-		cost: model.provider === CLAUDE_CODE_PROVIDER || model.provider === CUSTOM_PROVIDER.id ? null : {
+		cost: model.provider === CLAUDE_CODE_PROVIDER || model.provider === ANTIGRAVITY_CLI_PROVIDER || model.provider === CUSTOM_PROVIDER.id ? null : {
 			input: model.cost.input,
 			output: model.cost.output,
 			cacheRead: model.cost.cacheRead,
 			cacheWrite: model.cost.cacheWrite,
 		},
-		contextWindow: model.provider === CLAUDE_CODE_PROVIDER ? null : model.contextWindow,
-		maxTokens: model.provider === CLAUDE_CODE_PROVIDER ? null : model.maxTokens,
+		contextWindow: model.provider === CLAUDE_CODE_PROVIDER || model.provider === ANTIGRAVITY_CLI_PROVIDER ? null : model.contextWindow,
+		maxTokens: model.provider === CLAUDE_CODE_PROVIDER || model.provider === ANTIGRAVITY_CLI_PROVIDER ? null : model.maxTokens,
 	};
 }
 
@@ -214,7 +232,7 @@ export function catalogContextLimits(): Map<string, number> {
 	const keyed = keyedProviderIds();
 	const index = new Map<string, number>();
 	for (const provider of piModels().getProviders()) {
-		if (!keyed.has(provider.id) || provider.id === CLAUDE_CODE_PROVIDER) continue;
+		if (!keyed.has(provider.id) || provider.id === CLAUDE_CODE_PROVIDER || provider.id === ANTIGRAVITY_CLI_PROVIDER) continue;
 		for (const model of piModels().getModels(provider.id)) {
 			index.set(`${provider.id}:${model.id}`, model.contextWindow);
 		}

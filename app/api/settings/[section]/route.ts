@@ -30,7 +30,7 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
+import { ANTIGRAVITY_CLI_PROVIDER, type AgentSettings, type ChatSettings, type ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -39,10 +39,12 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	refreshConnectionCatalog,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
 	syncLocalEngine,
+	invalidateAntigravityCatalog,
 	type SettingsBodyResult,
 } from "@/src/server";
 
@@ -71,6 +73,14 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 
 	// Section-specific cross-validation (against the catalog / the prompt
 	// store) — the parsers only see shapes.
+	if (section === "antigravityCli") invalidateAntigravityCatalog();
+	if (section === "chat" && (parsed.settings as ChatSettings).model?.provider === ANTIGRAVITY_CLI_PROVIDER) {
+		await refreshConnectionCatalog(ANTIGRAVITY_CLI_PROVIDER);
+	}
+	if (section === "models" && Object.values(parsed.settings as ModelsSettings)
+		.some((slot) => slot?.model?.provider === ANTIGRAVITY_CLI_PROVIDER)) {
+		await refreshConnectionCatalog(ANTIGRAVITY_CLI_PROVIDER);
+	}
 	if (section === "chat") {
 		const verdict = validateChatSettings(parsed.settings as ChatSettings);
 		if (!verdict.ok) {

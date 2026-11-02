@@ -34,6 +34,7 @@ import { effectiveSettings, stores, syncLocalEngine } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
+import { ANTIGRAVITY_CLI_PROVIDER } from "../core/contracts/antigravity-cli.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
@@ -256,6 +257,12 @@ export async function handleChatInput(
 		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
+	}
+	// The agy catalog is discovered from the installed CLI, not compiled in.
+	// Refresh it before engine/compaction construction so a saved family
+	// still resolves after a server restart without opening the picker.
+	if (conversation.provider === ANTIGRAVITY_CLI_PROVIDER) {
+		await refreshConnectionCatalog(ANTIGRAVITY_CLI_PROVIDER);
 	}
 
 	// THE COMPACTION GATE (owner round 14, 2026-10-05 — the structural

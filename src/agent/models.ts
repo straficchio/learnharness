@@ -21,6 +21,9 @@ import packageMetadata from "../../package.json" with { type: "json" };
 import { chatGPTModel } from "./chatgpt-bridge.ts";
 import { chatGPTStream } from "./chatgpt-stream.ts";
 import type { ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
+import { createAntigravityCliProvider } from "./antigravity-cli/provider.ts";
+import { DEFAULT_AGY_MODELS } from "./antigravity-cli/model-discovery.ts";
+import { streamAntigravityCli } from "./antigravity-cli/stream.ts";
 import { createClaudeCodeProvider } from "./claude-code/provider.ts";
 import { streamClaudeCode } from "./claude-code/stream.ts";
 import { nativeSubscriptionId, nativeSubscriptionModel } from "./subscription-bridge.ts";
@@ -57,11 +60,23 @@ export interface PiEngine {
 export type { ThinkingLevel };
 
 let collection: ReturnType<typeof createModels> | undefined;
+let antigravityModels: readonly Model<Api>[] = DEFAULT_AGY_MODELS;
 interface ProviderSource {
 	sync(models: MutableModels): void;
 	isCustom(id: string): boolean;
 }
 let providerSource: ProviderSource | undefined;
+
+/** Register the discovered agy catalog without recreating the collection. */
+export function setAntigravityModels(models: readonly Model<Api>[]): void {
+	antigravityModels = models;
+	if (collection) collection.setProvider(createAntigravityCliProvider(streamAntigravityCli, models));
+}
+
+/** Test/status view: the currently registered agy catalog. */
+export function currentAntigravityModels(): readonly Model<Api>[] {
+	return antigravityModels;
+}
 
 /** Configuration IO is injected by the server; the agent never imports stores. */
 export function configureProviderSource(source: ProviderSource): void {
@@ -95,6 +110,7 @@ export function piModels() {
 				: provider);
 		}
 		collection.setProvider(createClaudeCodeProvider(streamClaudeCode));
+		collection.setProvider(createAntigravityCliProvider(streamAntigravityCli, antigravityModels));
 	}
 	providerSource?.sync(collection);
 	return collection;
