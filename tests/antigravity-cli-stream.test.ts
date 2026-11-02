@@ -195,9 +195,16 @@ test("text scenario streams agent-response deltas and per-step usage, not the cu
 	assert.equal(typeof mcpConfig.mcpServers.learnharness.headers.Authorization, "string");
 	assert.equal(statSync(join(calls[0]!.env.HOME!, ".gemini", "config", "mcp_config.json")).mode & 0o777, 0o600);
 	assert.equal(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "hooks.json"), "utf8").includes("PreToolUse"), true);
-	const rules = readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "rules", "00-learnharness.md"), "utf8");
+	const rulesDir = join(calls[0]!.env.HOME!, ".gemini", "config", "rules");
+	const preamble = readFileSync(join(rulesDir, "00-tool-bridge.md"), "utf8");
+	assert.match(preamble, /trigger: always_on/);
+	assert.match(preamble, /mcp_learnharness_/);
+	assert.match(preamble, /mcp_learnharness_probe/);
+	const rules = readFileSync(join(rulesDir, "01-learnharness.md"), "utf8");
 	assert.match(rules, /trigger: always_on/);
 	assert.match(rules, /You are a tutor\./);
+	const gate = readFileSync(join(calls[0]!.env.HOME!, "private", "gate.mjs"), "utf8");
+	assert.match(gate, /mcp_learnharness_<name>/);
 });
 
 test("a held MCP tool call returns control to Pi and the same process continues with its result", async (t) => {

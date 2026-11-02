@@ -8,6 +8,21 @@ const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIR_MODE = 0o700;
 const RULE_CHUNK_BYTES = 20_000;
 
+const TOOL_BRIDGE_RULE = `## LearnHarness tool bridge
+
+You are running inside LearnHarness. The host registers the harness tools under
+the \`mcp_learnharness_\` prefix. The CLI's native tool list does not include
+them; they are still registered. When the instructions below name a harness
+tool (for example \`probe\`, \`probe_done\`, \`ask_user_question\`, \`quiz\`,
+\`explain\`, \`list_sessions\`, \`list_propositions\`, \`read\`, \`write\`, or
+\`question\`), call \`mcp_learnharness_<name>\` (for example
+\`mcp_learnharness_probe\`). Never call a bare harness name,
+\`call_mcp_tool\`, \`read_file\`, \`run_command\`, or any other native CLI tool;
+the host blocks those. The one exception is reading an image path that
+LearnHarness included in the conversation: use \`read_file\` or \`view_file\`
+only for those image paths. If a call is blocked, retry the same action with its
+\`mcp_learnharness_\` name.`;
+
 export type AgyMcpConfig = {
 	url: string;
 	headers: Record<string, string>;
@@ -116,7 +131,9 @@ if (imageDir && (name === "read_file" || name === "view_file")) {
 const allowed = allowMcp || allowImage;
 process.stdout.write(JSON.stringify({
 	decision: allowed ? "allow" : "deny",
-	reason: allowed ? "LearnHarness tool bridge" : "LearnHarness allows only its harness MCP tools and its image files.",
+	reason: allowed
+		? "LearnHarness tool bridge"
+		: "LearnHarness blocked a native CLI tool. Harness tools are registered as mcp_learnharness_<name> (for example mcp_learnharness_probe); retry with that name.",
 }));
 `;
 }
@@ -183,11 +200,14 @@ export async function createAgyTurnFiles(input: {
 		]);
 
 		const chunks = splitPrompt(input.systemPrompt);
-		await Promise.all(chunks.map((chunk, index) => writeFile(
-			join(rulesDir, `${String(index).padStart(2, "0")}-learnharness.md`),
-			`---\ntrigger: always_on\n---\n\n${chunk}\n`,
-			{ mode: PRIVATE_FILE_MODE },
-		)));
+		await Promise.all([
+			writeFile(join(rulesDir, "00-tool-bridge.md"), `---\ntrigger: always_on\n---\n\n${TOOL_BRIDGE_RULE}\n`, { mode: PRIVATE_FILE_MODE }),
+			...chunks.map((chunk, index) => writeFile(
+				join(rulesDir, `${String(index + 1).padStart(2, "0")}-learnharness.md`),
+				`---\ntrigger: always_on\n---\n\n${chunk}\n`,
+				{ mode: PRIVATE_FILE_MODE },
+			)),
+		]);
 
 		const logFile = join(privateDir, "agy.log");
 		return {

@@ -566,6 +566,9 @@ async function startProcess(
 ): Promise<void> {
 	if (options?.signal?.aborted) { turn.fail(ABORT_MESSAGE, "aborted"); return; }
 	const input = toAgyInput(context.messages);
+	if (input.tools.length === 0) {
+		console.warn("agy CLI turn started without harness tools; the agent's current tool declarations are empty");
+	}
 	let cliProcess: AgyProcess | undefined;
 	const bridge = await createAgyToolBridge(input.tools, {
 		onCall: () => cliProcess?.flushAdmissions(),
