@@ -107,18 +107,26 @@ export function ModelTraceDrawer({
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const totalRef = useRef(0);
-	const polling = useRef<AbortController | null>(null);
+	const requestSeq = useRef(0);
+	const inFlight = useRef<Set<AbortController>>(new Set());
+
+	const abortAll = useCallback(() => {
+		for (const controller of inFlight.current) controller.abort();
+		inFlight.current.clear();
+	}, []);
 
 	const load = useCallback(async (reset: boolean) => {
+		const seq = ++requestSeq.current;
 		const after = reset ? 0 : totalRef.current;
+		if (reset) abortAll();
 		const controller = new AbortController();
-		polling.current?.abort();
-		polling.current = controller;
+		inFlight.current.add(controller);
 		try {
 			const response = await fetch(`/api/model-trace?session=${encodeURIComponent(chatId)}&after=${after}`, { cache: "no-store", signal: controller.signal });
 			if (!response.ok) throw new Error("trace unavailable");
 			const body = await response.json() as TraceResponse;
-			if (controller.signal.aborted) return;
+			// A newer poll owns the view; never append an older response.
+			if (seq !== requestSeq.current) return;
 			setEnabled(body.enabled === true);
 			if (reset || body.total < after) {
 				setEvents(body.events);
@@ -130,21 +138,25 @@ export function ModelTraceDrawer({
 			setError(null);
 		} catch {
 			if (!controller.signal.aborted) setError("Could not read the model trace.");
+		} finally {
+			inFlight.current.delete(controller);
 		}
-	}, [chatId]);
+	}, [abortAll, chatId]);
 
 	useEffect(() => {
 		if (!open) {
-			polling.current?.abort();
+			requestSeq.current++;
+			abortAll();
 			return;
 		}
 		void load(true);
 		const interval = setInterval(() => { void load(false); }, 1000);
 		return () => {
+			requestSeq.current++;
 			clearInterval(interval);
-			polling.current?.abort();
+			abortAll();
 		};
-	}, [open, load]);
+	}, [open, load, abortAll]);
 
 	useEffect(() => {
 		setSelected(null);
