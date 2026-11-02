@@ -236,13 +236,39 @@ function stripToolSummary(parameters: JsonObject): JsonObject {
 	return rest as JsonObject;
 }
 
+/** agy's step_update summarizes long string arguments (observed: the first
+ *  512 chars + U+2026) while the authenticated MCP request carries the full
+ *  value. Accept that specific truncated-prefix form; every other value must
+ *  still match exactly. */
+function streamedValueMatches(streamed: unknown, actual: unknown): boolean {
+	if (typeof streamed === "string" && typeof actual === "string") {
+		if (streamed === actual) return true;
+		return streamed.endsWith("\u2026") && actual.startsWith(streamed.slice(0, -1));
+	}
+	if (Array.isArray(streamed) || Array.isArray(actual)) {
+		return Array.isArray(streamed)
+			&& Array.isArray(actual)
+			&& streamed.length === actual.length
+			&& streamed.every((value, index) => streamedValueMatches(value, actual[index]));
+	}
+	if (streamed !== null && typeof streamed === "object" || actual !== null && typeof actual === "object") {
+		if (streamed === null || actual === null || typeof streamed !== "object" || typeof actual !== "object") return false;
+		const left = streamed as Record<string, unknown>;
+		const right = actual as Record<string, unknown>;
+		const keys = Object.keys(left);
+		return keys.length === Object.keys(right).length
+			&& keys.every((key) => Object.hasOwn(right, key) && streamedValueMatches(left[key], right[key]));
+	}
+	return isDeepStrictEqual(streamed, actual);
+}
+
 /** Names only — enough to point at the disagreement without copying the
  *  (possibly long, learner-authored) values into the chat error. */
 function differingToolFields(intent: JsonObject, call: JsonObject): string[] {
 	const left = intent as Record<string, unknown>;
 	const right = call as Record<string, unknown>;
 	return [...new Set([...Object.keys(left), ...Object.keys(right)])]
-		.filter((key) => !isDeepStrictEqual(left[key], right[key]));
+		.filter((key) => !streamedValueMatches(left[key], right[key]));
 }
 
 function resultError(event: Extract<AgyEvent, { type: "result" }>): string {
@@ -384,7 +410,7 @@ class AgyProcess implements LiveProcess {
 		}
 		const intent = this.intents.get(call.stepIndex);
 		if (!intent) return;
-		if (intent.name !== call.name || !isDeepStrictEqual(intent.arguments, call.arguments)) {
+		if (intent.name !== call.name || !streamedValueMatches(intent.arguments, call.arguments)) {
 			const fields = differingToolFields(intent.arguments, call.arguments);
 			traceNote(this.sessionId, `harness tool mismatch at step ${call.stepIndex}: streamed ${intent.name}, MCP ${call.name}${fields.length > 0 ? ` — differing fields: ${fields.join(", ")}` : ""}`);
 			this.fail(`agy CLI compatibility error: MCP call does not match its streamed tool intent (${call.name}, step ${call.stepIndex}${fields.length > 0 ? `; differing fields: ${fields.join(", ")}` : ""})`);

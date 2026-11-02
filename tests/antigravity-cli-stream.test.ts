@@ -347,6 +347,23 @@ test("argument drift between the streamed intent and the MCP call names the diff
 	assert.match(message, /differing fields: text/);
 });
 
+test("a truncated streamed string admits the full authenticated MCP arguments", async (t) => {
+	const full = `${"x".repeat(512)}TAIL`;
+	const truncated = `${"x".repeat(512)}\u2026`;
+	const { runAgy } = createFakeRun(t, [
+		JSON.stringify({
+			fake: "call", stepIndex: 2, name: "echo",
+			streamArguments: { text: truncated }, arguments: { text: full },
+			progressToken: PROGRESS_TOKEN, output: "ECHO",
+		}),
+	]);
+	const events = await runTurn(runAgy, [HI], [ECHO_TOOL]);
+	const done = getDone(events);
+	const call = done.message.content.find((block) => block.type === "toolCall");
+	assert.ok(call?.type === "toolCall");
+	assert.deepEqual(call.arguments, { text: full }, "the admitted call keeps the MCP full value");
+});
+
 test("abort kills the child and ends the stream as aborted", async (t) => {
 	const { runAgy, calls } = createFakeRun(t, [JSON.stringify({ fake: "hold" })]);
 	const controller = new AbortController();
