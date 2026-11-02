@@ -1,9 +1,10 @@
 export type LiveProcess = { readonly owner: symbol; readonly sessionId: string | undefined; toolCallIds: string[]; kill(): void };
 
 // A held learner question keeps the CLI blocked on the MCP call. Retire the
-// process before the CLI's own (undocumented) MCP timeout; a later answer
-// starts a fresh process with the question and answer in replay.
-export const AGY_LIVE_PROCESS_IDLE_TIMEOUT_MS = 4 * 60_000;
+// process after ten minutes; a later answer starts a fresh process with the
+// question and answer in replay. The bridge config asks the CLI for a
+// 30-minute per-call ceiling, so this retention stays safely below it.
+export const AGY_LIVE_PROCESS_IDLE_TIMEOUT_MS = 10 * 60_000;
 
 /** Test seam. */
 export const liveProcessIdleTimeoutMs = { current: AGY_LIVE_PROCESS_IDLE_TIMEOUT_MS };

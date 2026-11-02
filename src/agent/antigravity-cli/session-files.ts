@@ -164,6 +164,11 @@ export async function createAgyTurnFiles(input: {
 						type: "http",
 						url: input.mcp.url,
 						headers: input.mcp.headers,
+						// The CLI bounds each MCP tool call with its own default.
+						// LearnHarness holds question calls until the learner answers,
+						// so give the bridge a longer ceiling than our 10-minute
+						// live-process retention; a later answer starts a fresh replay.
+						timeoutSeconds: 1_800,
 					},
 				},
 			}), { mode: PRIVATE_FILE_MODE }),

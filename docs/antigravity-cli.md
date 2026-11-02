@@ -82,7 +82,9 @@ exposes the current LearnHarness tool schemas through a temporary
 binds only `127.0.0.1` on an ephemeral port and requires a random per-bridge
 bearer token. Every tool is marked `_meta["antigravity/alwaysLoad"] = true`, so
 the CLI offers it directly as `mcp_learnharness_…` instead of requiring a
-schema-file read or a generic `call_mcp_tool` step.
+schema-file read or a generic `call_mcp_tool` step. The bridge configuration
+also sets `timeoutSeconds: 1800`, so the CLI's shorter default per-call MCP
+ceiling cannot cut off a learner question.
 
 **Streamed tool intent alone never authorizes execution.** An authenticated MCP
 request must carry a unique `_meta.progressToken` shaped
@@ -142,12 +144,13 @@ unchanged model, effort, system prompt, tools, and child environment. Colliding
 tool IDs in two chats or runs do not grant cross-session reuse. A direct caller
 without a session ID can run, but never retains a reusable child.
 
-Held children have a **four-minute idle timeout**, intentionally bounded below
-the CLI's general turn deadline. A later answer starts fresh and replays the
-active LearnHarness history, including the question and answer. If there is no
-eligible held child—for example after timeout/restart, a changed configuration,
-or history replacement—the next call starts fresh and replays the active
-LearnHarness history. [Replay](../src/agent/antigravity-cli/transcript.ts) is
+Held children have a **ten-minute idle timeout**, intentionally bounded below
+the CLI's per-call MCP ceiling (LearnHarness asks for 30 minutes in the bridge
+config). A later answer starts fresh and replays the active LearnHarness
+history, including the question and answer. If there is no eligible held
+child—for example after timeout/restart, a changed configuration, or history
+replacement—the next call starts fresh and replays the active LearnHarness
+history. [Replay](../src/agent/antigravity-cli/transcript.ts) is
 labelled user/assistant/tool-call/tool-result text in one streaming user
 message, with image files referenced by path; it is **not** CLI `--conversation`
 resume or exact native-role/thinking history restoration. The current system
@@ -158,15 +161,18 @@ is not a guarantee that arbitrary CLI failures will retry automatically.
 ### Waiting, cancellation, and cleanup
 
 A question stops later tool work until the learner answers. An answer arriving
-while the child is still eligible resolves its held MCP call. Request abort
-kills the child and ends the active stream as aborted. Cancellation of an
-individual queued MCP call prevents its later admission; it cannot undo work
-already admitted to Pi. Normal completion, abort, failure, and idle expiry
-terminate the child, escalating to `SIGKILL` after one second if necessary. On
-child close the adapter settles/closes bridge calls, releases the listener, and
-removes its temporary directories. Startup failures also clean allocated
-resources. This is normal-process cleanup, not a promise of cleanup after an OS
-crash or forced server termination.
+while the child is still eligible resolves its held MCP call. If the CLI
+abandons a held call before the learner answers, LearnHarness retires that child
+quietly; the pending question survives, and the answer starts a fresh replay
+instead of surfacing a protocol/timeout error the learner cannot act on.
+Request abort kills the child and ends the active stream as aborted.
+Cancellation of an individual queued MCP call prevents its later admission; it
+cannot undo work already admitted to Pi. Normal completion, abort, failure, and
+idle expiry terminate the child, escalating to `SIGKILL` after one second if
+necessary. On child close the adapter settles/closes bridge calls, releases the
+listener, and removes its temporary directories. Startup failures also clean
+allocated resources. This is normal-process cleanup, not a promise of cleanup
+after an OS crash or forced server termination.
 
 ## Usage, context, and troubleshooting
 

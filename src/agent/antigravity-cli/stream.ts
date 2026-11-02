@@ -388,6 +388,15 @@ class AgyProcess implements LiveProcess {
 		this.kill();
 	};
 
+	/** The CLI gave up on a held harness result while the learner-facing turn
+	 * was already complete. Retire it silently: the pending question (and its
+	 * answer) survives, and the answer turn starts a fresh replay instead of
+	 * surfacing a protocol/timeout error the learner cannot act on. */
+	private retireWaiting(reason: string): void {
+		console.warn(`agy CLI retired while a harness tool result was pending: ${reason}`);
+		this.kill();
+	}
+
 	private setSignal(signal: AbortSignal | undefined): void {
 		this.signal?.removeEventListener("abort", this.abort);
 		this.signal = signal;
@@ -412,7 +421,7 @@ class AgyProcess implements LiveProcess {
 
 		if (event.type === "agentResponse") {
 			if (this.turn.isFinished) {
-				this.fail("agy CLI moved on while harness tool calls were waiting for results");
+				this.retireWaiting("agent response after the held tool call");
 				return;
 			}
 			this.turn.handleAgentResponse(event);
@@ -424,7 +433,7 @@ class AgyProcess implements LiveProcess {
 
 			if (event.state === "ACTIVE") {
 				if (this.turn.isFinished) {
-					this.fail("agy CLI moved on while harness tool calls were waiting for results");
+					this.retireWaiting("new tool step after the held tool call");
 					return;
 				}
 				if (!harnessName) {
@@ -439,7 +448,10 @@ class AgyProcess implements LiveProcess {
 			}
 
 			if (event.state === "DONE") {
-				if (this.admittedSteps.has(event.stepIndex)) return;
+				if (this.admittedSteps.has(event.stepIndex)) {
+					if (this.turn.isFinished) this.retireWaiting("held tool call completed before its result was resolved");
+					return;
+				}
 				if (!harnessName) {
 					if (this.allowedNativeSteps.has(event.stepIndex)) return;
 					this.fail(this.blockedNativeSteps.has(event.stepIndex)
@@ -452,7 +464,10 @@ class AgyProcess implements LiveProcess {
 			}
 
 			if (event.state === "ERROR") {
-				if (this.admittedSteps.has(event.stepIndex)) return;
+				if (this.admittedSteps.has(event.stepIndex)) {
+					if (this.turn.isFinished) this.retireWaiting("CLI failed the held tool call");
+					return;
+				}
 				if (this.cancelledSteps.has(event.stepIndex)) return;
 				if (!harnessName) {
 					// The hook denied it; the model may retry with the bridge.
@@ -469,7 +484,7 @@ class AgyProcess implements LiveProcess {
 
 		if (event.type === "result") {
 			if (this.turn.isFinished) {
-				this.fail("agy CLI moved on while harness tool calls were waiting for results");
+				this.retireWaiting("terminal result after the held tool call");
 				return;
 			}
 			if (event.status === "SUCCESS") {

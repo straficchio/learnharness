@@ -43,15 +43,19 @@ type RunCall = {
 	child: ChildProcessWithoutNullStreams;
 };
 
-function createFakeRun(t: TestContext, scenario: string[]): { runAgy: RunAgy; calls: RunCall[] } {
+function createFakeRun(t: TestContext, scenario: string[] | string[][]): { runAgy: RunAgy; calls: RunCall[] } {
 	const dir = mkdtempSync(join(tmpdir(), "agy-stream-test-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
-
-	const scenarioFile = join(dir, "scenario.jsonl");
-	writeFileSync(scenarioFile, `${scenario.join("\n")}\n`);
+	const scenarios = scenario.length === 0 || typeof scenario[0] === "string"
+		? [scenario as string[]]
+		: scenario as string[][];
 
 	const calls: RunCall[] = [];
 	const runAgy: RunAgy = (args, options) => {
+		const current = scenarios[calls.length];
+		assert.ok(current, `unexpected spawn #${calls.length + 1}`);
+		const scenarioFile = join(dir, `scenario-${calls.length}.jsonl`);
+		writeFileSync(scenarioFile, `${current.join("\n")}\n`);
 		const child = spawn(process.execPath, [FAKE_AGY, ...args], {
 			cwd: options.cwd,
 			env: { ...options.env, FAKE_AGY_SCENARIO: scenarioFile },
@@ -184,7 +188,11 @@ test("text scenario streams agent-response deltas and per-step usage, not the cu
 	assert.equal(calls.length, 1);
 	assert.equal(calls[0]!.cwd.includes("agy-cwd-"), true);
 	assert.equal(calls[0]!.env.HOME?.includes("agy-home-"), true);
-	assert.equal(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "mcp_config.json"), "utf8").includes("mcpServers"), true);
+	const mcpConfig = JSON.parse(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "mcp_config.json"), "utf8"));
+	assert.equal(mcpConfig.mcpServers.learnharness.timeoutSeconds, 1800);
+	assert.equal(mcpConfig.mcpServers.learnharness.type, "http");
+	assert.equal(typeof mcpConfig.mcpServers.learnharness.url, "string");
+	assert.equal(typeof mcpConfig.mcpServers.learnharness.headers.Authorization, "string");
 	assert.equal(statSync(join(calls[0]!.env.HOME!, ".gemini", "config", "mcp_config.json")).mode & 0o777, 0o600);
 	assert.equal(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "hooks.json"), "utf8").includes("PreToolUse"), true);
 	const rules = readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "rules", "00-learnharness.md"), "utf8");
@@ -339,6 +347,28 @@ test("error results surface the CLI message and preserve unsupported failures", 
 	assert.match(getError(events).error.errorMessage ?? "", /invalid model selection/);
 });
 
+test("the CLI giving up on a held question call retires quietly and the answer replays", async (t) => {
+	const { runAgy, calls } = createFakeRun(t, [
+		[JSON.stringify({ fake: "abandon", stepIndex: 2, name: "echo", arguments: { text: "hi" }, progressToken: PROGRESS_TOKEN, message: "request terminated without response" })],
+		[JSON.stringify({ fake: "text", stepIndex: 1, text: "replayed answer" }), JSON.stringify({ fake: "result", status: "SUCCESS", response: "replayed answer" })],
+	]);
+
+	const first = await runTurn(runAgy, [HI], [ECHO_TOOL]);
+	const firstDone = getDone(first);
+	assert.equal(firstDone.reason, "toolUse");
+	const call = firstDone.message.content.find((block) => block.type === "toolCall");
+	assert.ok(call?.type === "toolCall");
+
+	await waitForExit(calls[0]!.child);
+	assert.equal(calls[0]!.child.exitCode !== null || calls[0]!.child.signalCode !== null, true, "the abandoned process must be retired");
+
+	const second = await runTurn(runAgy, [HI, firstDone.message, toToolResult(call)], [ECHO_TOOL]);
+	const secondDone = getDone(second);
+	assert.equal(calls.length, 2, "the answer must start a fresh replay, not reuse the abandoned process");
+	assert.equal(secondDone.reason, "stop");
+	assert.equal(getText(secondDone.message), "replayed answer");
+});
+
 test("authentication failures map to the not-signed-in message", async (t) => {
 	const { runAgy } = createFakeRun(t, [
 		JSON.stringify({ fake: "result", status: "ERROR", error: "authentication required" }),
@@ -355,6 +385,6 @@ test("an authentication stderr on process exit maps to the not-signed-in message
 	assert.equal(getError(events).error.errorMessage, "not signed in");
 });
 
-test("the live-process retention is bounded below the CLI's indefinite wait", () => {
-	assert.equal(AGY_LIVE_PROCESS_IDLE_TIMEOUT_MS, 4 * 60_000);
+test("the live-process retention is bounded below the CLI's MCP ceiling", () => {
+	assert.equal(AGY_LIVE_PROCESS_IDLE_TIMEOUT_MS, 10 * 60_000);
 });

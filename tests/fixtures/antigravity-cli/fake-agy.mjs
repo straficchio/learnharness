@@ -133,6 +133,23 @@ for (const raw of lines) {
 		await toolEvent(directive.stepIndex, "DONE", `mcp_learnharness_${streamName}`, directive.arguments ?? {}, { output });
 		continue;
 	}
+	if (directive.fake === "abandon") {
+		bridge ??= await connectBridge();
+		const streamName = directive.streamName ?? directive.name;
+		const controller = new AbortController();
+		await toolEvent(directive.stepIndex, "ACTIVE", `mcp_learnharness_${streamName}`, directive.arguments ?? {});
+		void bridge.callTool({
+			name: directive.name,
+			arguments: directive.arguments ?? {},
+			...(directive.progressToken !== undefined ? { _meta: { progressToken: directive.progressToken } } : {}),
+		}, undefined, { signal: controller.signal }).catch(() => {});
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		await toolEvent(directive.stepIndex, "ERROR", `mcp_learnharness_${streamName}`, directive.arguments ?? {}, {
+			error: { type: "TOOL_ERROR", message: directive.message ?? "held call abandoned" },
+		});
+		setInterval(() => {}, 60_000);
+		break;
+	}
 
 	await line(JSON.parse(raw));
 }
