@@ -48,11 +48,12 @@ import {
 	type LhMessage,
 	type ModelSlotName,
 } from "@/src/core";
+import { ModelTraceDrawer } from "@/components/model-trace-drawer";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, DumbbellIcon, SquareTerminalIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -881,6 +882,10 @@ export function Chat({
 	// The live plan popup (wave 4): opened by any transcript plan block, the
 	// top-bar plan chip, and the dock band's marginalia.
 	const [planOpen, setPlanOpen] = useState(false);
+	// The model-trace drawer (Developer diagnostics): session-scoped, opened
+	// from the header chip and closed by its own header. It polls the trace
+	// API while open; closed, it makes no requests.
+	const [traceOpen, setTraceOpen] = useState(false);
 	// Real plan presence — gates the marginalia's clickable flank. A JSX
 	// element is always truthy; gating on the node alone mounted a phantom
 	// (invisible, clickable) button in the bottom-right whenever a question
@@ -1372,6 +1377,25 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+					{/* The model trace (Developer diagnostics, 2026-11-02): the
+					    session-scoped console for what each model call sent and
+					    received. Always present — the drawer explains how to
+					    enable recording when it is off. */}
+					<Hint label="Inspect model traffic" side="bottom">
+						<button
+							type="button"
+							data-testid="trace-chip"
+							aria-pressed={traceOpen}
+							onClick={(e) => {
+								blurAfterPointerClick(e);
+								setTraceOpen((open) => !open);
+							}}
+							className="lh-no-drag flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+						>
+							<SquareTerminalIcon className="size-3.5" aria-hidden />
+							Trace
+						</button>
+					</Hint>
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1791,6 +1815,12 @@ export function Chat({
 					/>
 				)}
 				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
+				<ModelTraceDrawer
+					chatId={chatId}
+					title={titleText}
+					open={traceOpen}
+					onClose={() => setTraceOpen(false)}
+				/>
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>

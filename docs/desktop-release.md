@@ -75,13 +75,13 @@ A manual run never creates or publishes a release and needs no signing secrets. 
 
 ## Localmain automatic builds
 
-`.github/workflows/localmain-build.yml` is the personal-fork build path. Every push to `localmain` (or a manual dispatch) runs the quality gates and builds unsigned installers on all three platforms, uploading:
+`.github/workflows/localmain-build.yml` is the personal-fork build path. Every push to `localmain` (or a manual dispatch) runs the quality gates and builds unsigned installers on all three platforms, uploading workflow artifacts:
 
 - `learnharness-localmain-mac-arm64`
 - `learnharness-localmain-windows-x64`
 - `learnharness-localmain-linux-x64`
 
-It never creates a GitHub Release, never signs/notarizes macOS, and retains artifacts for 7 days. The `main` branch remains an upstream replica; `localmain` is the working branch where feature branches are merged.
+Artifacts are retained for 7 days. The same run also creates or updates the rolling prerelease **`localmain-latest`** and attaches the actual installers, blockmaps, and `latest*.yml` update feeds, so downloads need no workflow-artifact detour. Its notes carry the built commit and an unsigned-build warning. The prerelease is updated in place (assets from older versions are removed), and it only carries the platforms that built successfully in that run — one failed platform does not hide the others. It never creates a stable/production release, never signs/notarizes macOS, and never publishes a tag-based `v*` release. The `main` branch remains an upstream replica; `localmain` is the working branch where feature branches are merged.
 
 ## CI vs release
 

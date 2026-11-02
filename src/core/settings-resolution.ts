@@ -121,6 +121,8 @@ export interface EffectiveSettings {
 	/** Custom endpoint, resolved concrete: baseUrl defaults "", models and
 	 *  user pins default to empty. */
 	customProvider: { baseUrl: string; models: CustomModel[]; overrides: Record<string, CustomModelOverride>; manualModels: string[] };
+	/** Local diagnostics, resolved concrete (both off by default). */
+	developer: { modelTrace: boolean };
 }
 
 /** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
@@ -244,6 +246,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			vision: resolveSlot(modelsSection.vision),
 		},
 		local: resolveLocalEngine(record?.local),
+		developer: { modelTrace: record?.developer?.modelTrace ?? false },
 		appearance: {
 			mode: appearance.mode ?? factoryAppearance.mode,
 			background: appearance.background ?? factoryAppearance.background,

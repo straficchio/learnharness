@@ -132,3 +132,84 @@ jobs:
             dist/*.deb
             dist/*.blockmap
             dist/latest*.yml
+
+  # The rolling download point: every successful package job's files land on
+  # one prerelease tag, `localmain-latest`. This job runs even when one
+  # platform fails (matrix fail-fast is off), so the platforms that DID build
+  # stay downloadable. Unsigned by design — the notes carry the warning and
+  # the exact commit. Assets are clobbered, and anything from an older run
+  # (previous version filenames, stale feeds) is removed.
+  publish:
+    name: Publish localmain prerelease
+    needs: package
+    if: ${{ !cancelled() && needs.package.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the available installers
+        uses: actions/download-artifact@v7
+        with:
+          pattern: learnharness-localmain-*
+          path: release
+          merge-multiple: true
+      - name: Write release notes
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Unsigned installers built from \`localmain\`.
+
+          - Commit: \`$GITHUB_SHA\`
+          - Built: $(date -u '+%Y-%m-%d %H:%M UTC')
+          - Run: $RUN_URL
+
+          > These builds are unsigned and not notarized. macOS Gatekeeper and
+          > Windows SmartScreen will warn. Verify the download before running.
+
+          One or more platform jobs may have failed; this release carries every
+          installer that built successfully in this run.
+          EOF
+      - name: Create or update localmain-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd release
+          # Guard the upload: a run where every package job failed must not
+          # create an empty "release".
+          shopt -s nullglob
+          files=(*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No installer files were produced." >&2
+            exit 1
+          fi
+          printf 'Publishing:\n'; printf '  %s\n' "${files[@]}"
+
+          if gh release view localmain-latest >/dev/null 2>&1; then
+            gh release edit localmain-latest \
+              --prerelease --title "localmain latest (unsigned)" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+            # Drop assets that this run did not produce (old versions, stale
+            # feeds), so the release always describes the current commit.
+            gh release view localmain-latest --json assets --jq '.assets[].name' |
+              while IFS= read -r asset; do
+                [ -z "$asset" ] && continue
+                keep=0
+                for file in "${files[@]}"; do
+                  if [ "$file" = "$asset" ]; then keep=1; break; fi
+                done
+                if [ "$keep" -eq 0 ]; then
+                  gh release delete-asset localmain-latest "$asset" --yes
+                fi
+              done
+          else
+            gh release create localmain-latest \
+              --prerelease --title "localmain latest (unsigned)" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+          gh release upload localmain-latest "${files[@]}" --clobber

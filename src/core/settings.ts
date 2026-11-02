@@ -532,6 +532,8 @@ export interface UserSettings {
 	claudeCode?: { enabled?: boolean };
 	/** Explicit app-wide opt-in for the externally installed Antigravity CLI. */
 	antigravityCli?: { enabled?: boolean };
+	/** Local diagnostics. Absent/invalid means off. */
+	developer?: { modelTrace?: boolean };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
@@ -922,6 +924,12 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		out.antigravityCli = raw !== null && typeof raw === "object" && !Array.isArray(raw)
 			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
 			? { enabled: (raw as { enabled: boolean }).enabled } : {};
+	}
+	if (r.developer !== undefined) {
+		const raw = r.developer;
+		out.developer = raw !== null && typeof raw === "object" && !Array.isArray(raw)
+			&& typeof (raw as Record<string, unknown>).modelTrace === "boolean"
+			? { modelTrace: (raw as { modelTrace: boolean }).modelTrace } : {};
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);

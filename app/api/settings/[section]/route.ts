@@ -44,6 +44,7 @@ import {
 	validateModelsSettings,
 	writeSettingsRecord,
 	syncLocalEngine,
+	syncModelTrace,
 	invalidateAntigravityCatalog,
 	type SettingsBodyResult,
 } from "@/src/server";
@@ -143,5 +144,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// The local provider is process-wide state; make a local-section write
 	// visible to /api/models and the next turn immediately.
 	if (section === "local") syncLocalEngine();
+	// The model-trace gate lives in the agent layer; apply a Developer write
+	// before the response so the drawer's live state matches the record.
+	if (section === "developer") syncModelTrace(next);
 	return Response.json({ settings: next });
 }

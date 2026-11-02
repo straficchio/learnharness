@@ -26,6 +26,7 @@ import { parseStreamingJson, parseToolCallArguments } from "@earendil-works/pi-a
 
 import { externalCliEnv } from "../../core/auth-env.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
+import { traceCliEvent, traceCliRequest, traceToolResult } from "../model-trace.ts";
 import { ClaudeLaunchError, createClaudeLauncher } from "./launch.ts";
 import { parseCliLine, type CliBlock, type CliEvent, type CliUsage } from "./cli-events.ts";
 import { ClaudeCodeError } from "./constants.ts";
@@ -478,6 +479,7 @@ class ClaudeProcess implements LiveProcess {
 		for (const call of admitted) {
 			const result = results.find((candidate) => candidate.toolCallId === call.id)!;
 			this.bridge.resolveToolCall(call, result);
+			traceToolResult(this.sessionId, result);
 		}
 		this.flushAdmissions();
 	}
@@ -555,6 +557,7 @@ class ClaudeProcess implements LiveProcess {
 
 	private handleLine(line: string): void {
 		if (this.stopping || !line.trim()) return;
+		traceCliEvent(this.sessionId, line);
 		if (this.contextProbe?.handle(JSON.parse(line))) return;
 		const event = parseCliLine(line);
 		if (!event) return;
@@ -663,14 +666,22 @@ async function startProcess(
 	}
 
 	let child: ChildProcessWithoutNullStreams | null;
+	const args = toClaudeArgs({
+		model: model.id,
+		effort: toEffort(options?.reasoning),
+		systemPromptFile: files.systemPromptFile,
+		mcpConfigFile: files.mcpConfigFile,
+		allowedTools: bridge.allowedTools,
+	});
+	traceCliRequest(options?.sessionId, {
+		provider: "claude-code",
+		model: model.id,
+		args,
+		systemPrompt: input.systemPrompt,
+		tools: input.tools,
+		userContent: input.userContent,
+	});
 	try {
-		const args = toClaudeArgs({
-			model: model.id,
-			effort: toEffort(options?.reasoning),
-			systemPromptFile: files.systemPromptFile,
-			mcpConfigFile: files.mcpConfigFile,
-			allowedTools: bridge.allowedTools,
-		});
 		child = await runClaude(args, { cwd: files.cwd, env, signal: options?.signal });
 	} catch (error) {
 		await removeTurnResources(bridge, files);

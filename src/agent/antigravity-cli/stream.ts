@@ -20,6 +20,7 @@ import {
 } from "@earendil-works/pi-ai";
 
 import { externalCliEnv } from "../../core/auth-env.ts";
+import { traceCliEvent, traceCliRequest, traceToolResult } from "../model-trace.ts";
 import { parseAgyLine, type AgyEvent, type AgyUsage } from "./cli-events.ts";
 import { AGY_DEFAULT_MODEL_ID, AntigravityCliError } from "./constants.ts";
 import { AgyLaunchError, createAgyLauncher } from "./launch.ts";
@@ -314,6 +315,7 @@ class AgyProcess implements LiveProcess {
 		for (const call of admitted) {
 			const result = results.find((candidate) => candidate.toolCallId === call.id)!;
 			this.bridge.resolveToolCall(call, result);
+			traceToolResult(this.sessionId, result);
 		}
 		this.flushAdmissions();
 	}
@@ -414,6 +416,7 @@ class AgyProcess implements LiveProcess {
 
 	private handleLine(line: string): void {
 		if (this.stopping || this.closed || !line.trim()) return;
+		traceCliEvent(this.sessionId, line);
 		const event = parseAgyLine(line);
 		if (!event) return;
 
@@ -589,8 +592,19 @@ async function startProcess(
 	}
 
 	let child: AgyChild;
+	const content = renderAgyContent(input.userContent, files.imagePaths);
+	const args = toAgyArgs({ modelId: model.id, effort, logFile: files.logFile });
+	traceCliRequest(options?.sessionId, {
+		provider: "antigravity-cli",
+		model: model.id,
+		args,
+		systemPrompt: input.systemPrompt,
+		tools: input.tools,
+		userContent: content,
+		imagePaths: files.imagePaths,
+	});
 	try {
-		child = await runAgy(toAgyArgs({ modelId: model.id, effort, logFile: files.logFile }), {
+		child = await runAgy(args, {
 			cwd: files.cwd,
 			env: agyChildEnv(env, files),
 			signal: options?.signal,
@@ -606,7 +620,6 @@ async function startProcess(
 		return;
 	}
 
-	const content = renderAgyContent(input.userContent, files.imagePaths);
 	cliProcess = new AgyProcess(child, bridge, files, turn, owner, options?.sessionId, configuration, structuredClone(conversationForReuse(context.messages)));
 	cliProcess.start(toAgyStreamJsonLine(content), options?.signal);
 }

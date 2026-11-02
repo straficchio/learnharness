@@ -120,6 +120,15 @@ export function parseAntigravityCliSettingsBody(body: unknown): SettingsBodyResu
 	return { ok: true, settings: { enabled: raw.enabled } };
 }
 
+/** developer: local diagnostics. Empty section resets to off. */
+export function parseDeveloperSettingsBody(body: unknown): SettingsBodyResult<{ modelTrace?: boolean }> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	if (raw.modelTrace === undefined) return { ok: true, settings: {} };
+	if (typeof raw.modelTrace !== "boolean") return { ok: false, error: "modelTrace must be a boolean" };
+	return { ok: true, settings: { modelTrace: raw.modelTrace } };
+}
+
 /** agent.models: only the six known background roles; each override's
  *  fields mirror ChatSettings (model pair + independent thinkingLevel). */
 function parseRoleOverride(value: unknown, role: string): { ok: true; override: RoleModelOverride } | { ok: false; error: string } {
@@ -537,6 +546,7 @@ export const SETTINGS_SECTIONS = {
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
 	antigravityCli: parseAntigravityCliSettingsBody,
+	developer: parseDeveloperSettingsBody,
 	local: parseLocalEngineBody,
 } as const;
 

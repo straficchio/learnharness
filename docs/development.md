@@ -104,6 +104,8 @@ Normal development does not require importing/backfilling a personal corpus. Mai
 
 `LH_PROVIDER_EVENTS=1` enables raw provider-event debugging under the selected data root. These traces can contain lesson/provider content; treat them as private diagnostic data, not routine logs to publish.
 
+**Model trace** is the broader, opt-in request/response recorder for ordinary API and CLI model calls. Enable it in **Settings → Developer → Model trace**, or launch with `LH_MODEL_TRACE=1`. Each chat writes `<data root>/debug/model-traces/<chatId>.jsonl`; the chat header's **Trace** button opens a live drawer for the current session, with per-turn request/system prompt/tools/messages, CLI input, raw provider/CLI events, tool results, and the final response. The drawer can also enable recording and clear the session's file. Recording is off by default, is capped at 20 MB per session, and stores full prompts and responses: treat trace files as private diagnostic data, not logs to share. Authorization/header/credential fields are redacted and image bytes are replaced by a size note, but the remaining content is unredacted. Tracing failures never fail a model call.
+
 For background-worker behavioral inspection, use `LH_BACKGROUND_CAPTURE=auditor`, a comma-separated role list such as `auditor,extractor`, or `all`. This covers the shared worker runner (`researcher`, `demoBuilder`, `extractor`, `auditor`) and the separate image-in-the-loop workers (`visualMaker`, `pdfReader`), not foreground teaching/probing. For example:
 
 ```bash

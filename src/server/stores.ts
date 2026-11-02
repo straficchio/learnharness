@@ -14,6 +14,7 @@ import { settingsStore } from "../store/settings.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 import { syncCustomProvider } from "./custom-provider.ts";
 import { configureLocalEngine } from "../agent/models.ts";
+import { configureModelTrace } from "../agent/model-trace.ts";
 import type { UserSettings } from "../core/settings.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
@@ -33,6 +34,13 @@ export function syncLocalEngine(record: UserSettings | null = settingsStore.read
 	configureLocalEngine(resolveSettings(record).local);
 }
 
+/** Keep the agent-layer trace gate in sync with the persisted Developer
+ *  toggle. Cheap when unchanged; called at boot, on settings writes, and on
+ *  every effectiveSettings() read. */
+export function syncModelTrace(record: UserSettings | null = settingsStore.readSettings()): void {
+	configureModelTrace(resolveSettings(record).developer.modelTrace);
+}
+
 /**
  * The resolved view of the settings record (core/settings-resolution.ts):
  * every knob concrete over its factory default — EXCEPT MODELS (BYOK all
@@ -45,9 +53,11 @@ export function effectiveSettings(): EffectiveSettings {
 	const record = settingsStore.readSettings();
 	const effective = resolveSettings(record);
 	configureLocalEngine(effective.local);
+	configureModelTrace(effective.developer.modelTrace);
 	return effective;
 }
 
 // Boot: register the custom endpoint (when configured) into piModels(); the
 // POST /api/custom-provider route re-syncs after every connect.
 syncCustomProvider();
+syncModelTrace();

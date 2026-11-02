@@ -52,6 +52,7 @@ export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web
 export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export { antigravityCliInstallationResponse } from "./antigravity-cli.ts";
+export * from "./model-trace.ts";
 // The custom endpoint module (registers into piModels() + probes for models).
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";
