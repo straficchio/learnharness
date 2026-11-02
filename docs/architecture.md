@@ -54,7 +54,7 @@ The server owns the transcript. `POST /api/chat` carries `{chatId, input}`, not 
 - `src/core/native-messages.ts` → `toLlmMessages`: strips app-only metadata, flattens model-facing markers to user text, omits presentation-only markers and applies the active compaction cut. Unanswered calls from completed generations receive synthetic interrupted results at this boundary; calls in failed/aborted generations do not acquire orphan results.
 - `src/core/view.ts` → `projectView`: groups the native record into the UI's messages, parts and artifacts. This view is not the stored format or the provider wire. The app does not use the AI SDK's `useChat`/`addToolOutput` continuation loop.
 
-The system prompt and tool declarations are seeded by Pi at agent construction. That synthetic system message is filtered out at settlement, so every new agent receives fresh instructions rather than replaying old declarations. Rebuilding the application Agent does not require every provider transport to be stateless: the Claude Code adapter can retain an eligible live CLI process behind this boundary (see its [lifecycle reference](claude-code.md)).
+The system prompt and tool declarations are seeded by Pi at agent construction. That synthetic system message is filtered out at settlement, so every new agent receives fresh instructions rather than replaying old declarations. Rebuilding the application Agent does not require every provider transport to be stateless: the Claude Code and Antigravity CLI adapters can retain an eligible live CLI process behind this boundary (see their [lifecycle reference](claude-code.md) and [Antigravity CLI reference](antigravity-cli.md)).
 
 ### Admission, execution and settlement
 
@@ -228,6 +228,7 @@ Production Electron launches the standalone Next server as a private child on lo
 Ordinary API credentials are read through the key seam, with real environment variables taking precedence over saved file values. Web/dev subscription connections have a server-owned credential directory; packaged subscriptions keep refresh credentials in Electron main and use private scoped request transport. These logical subscription routes do not silently fall back to API-key billing. Claude Code is a separate local CLI provider with its own authentication/process lifecycle; custom endpoints have their own configuration and credential binding. Focused references:
 
 - [Claude Code](claude-code.md)
+- [Antigravity CLI](antigravity-cli.md)
 - [Custom providers](custom-providers.md)
 - [Compaction, context and accounting](compaction-accounting.md)
 - [Development credential and shared-server boundaries](development.md#subscription-connections-in-webdev)
