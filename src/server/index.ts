@@ -53,6 +53,16 @@ export { sessionCost } from "./pricing.ts";
 export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export { antigravityCliInstallationResponse } from "./antigravity-cli.ts";
 export * from "./model-trace.ts";
+export * from "./mode.ts";
+export * from "./extraction-scope.ts";
+export * from "./users.ts";
+export * from "./session.ts";
+export * from "./page-session.ts";
+export * from "./auth-http.ts";
+export * from "./server-config.ts";
+export * from "./server-config-http.ts";
+export * from "./runtime-settings.ts";
+export { readAppearance, writeAppearance } from "../store/appearance.ts";
 // The custom endpoint module (registers into piModels() + probes for models).
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";

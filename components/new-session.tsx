@@ -8,7 +8,8 @@ import { DictationBar, joinDictation, useDictation } from "@/components/dictatio
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
-import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
+import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill, AdminSetupNotice } from "@/components/setup-cta";
+import { useSessionUser } from "@/components/session-user";
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
@@ -278,13 +279,15 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	// Save stores the slots and never sends (owner ruling 2026-10-09) —
 	// the learner sends the draft themselves.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
+	const { user: sessionUser } = useSessionUser();
+	const canConfigure = sessionUser.role === "admin";
 	const [setupOpen, setSetupOpen] = useState(false);
 
 	const send = useCallback(() => {
 		const draft = textRef.current.trim();
 		if (!draft || startingRef.current) return;
 		if (!configured) {
-			setSetupOpen(true);
+			if (canConfigure) setSetupOpen(true);
 			return;
 		}
 		// The pre-send KEY guards (owner interlude, no-orphan-chats): guard
@@ -294,7 +297,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		// selection with another provider opens the ordinary Strong picker.
 		// The server's admission gate remains the belt.
 		if (zeroKeys) {
-			setSetupOpen(true);
+			if (canConfigure) setSetupOpen(true);
 			return;
 		}
 		const strong = catalog?.slots.strong?.model;
@@ -356,7 +359,9 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 					/>
 				}
 				setupCta={
-					zeroKeys ? (
+					!canConfigure ? (
+						(zeroKeys || !configured) && <AdminSetupNotice />
+					) : zeroKeys ? (
 						<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 					) : (
 						!configured && (

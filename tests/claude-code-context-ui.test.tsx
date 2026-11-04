@@ -22,7 +22,7 @@ test("compact CLI context is numeric only; effective-window explanation appears 
 		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null } };
 	globalThis.fetch = (async (url) => {
 		if (url === "/api/models") return Response.json(catalog);
-		if (url === "/api/settings") return Response.json({ settings: { models: {} } });
+		if (url === "/api/runtime") return Response.json({ models: {} });
 		if (url === "/api/chats/cli-session") return Response.json({ settings: { model: { provider: "claude-code", id: "opus" } } });
 		throw new Error(`unexpected request ${url}`);
 	}) as typeof fetch;

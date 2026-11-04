@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
+import { currentScopeId, forgetChatScope, rememberChatScope } from "../core/request-scope.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
@@ -46,7 +47,8 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
-	emit("chats-changed", {});
+	rememberChatScope(record.id);
+	emit("chats-changed", {}, currentScopeId());
 	return { ...record, version: CURRENT_CHAT_VERSION }; // the in-memory twin of what landed on disk
 }
 
@@ -73,7 +75,9 @@ function getChat(id: string): ChatRecord | null {
 		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
 		return null;
 	}
-	return parsed as ChatRecord;
+	const record = parsed as ChatRecord;
+	rememberChatScope(record.id);
+	return record;
 }
 
 /** Restore a full session record from the lossless export. The caller owns
@@ -85,7 +89,8 @@ function importChat(record: ChatRecord, options: { replace?: boolean } = {}): Ch
 	if (!options.replace && fs.existsSync(file)) return null;
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
-	emit("chats-changed", {});
+	rememberChatScope(record.id);
+	emit("chats-changed", {}, currentScopeId());
 	return { ...record, version: CURRENT_CHAT_VERSION };
 }
 
@@ -190,7 +195,7 @@ function renameChat(id: string, title: string): ChatRecord {
 	if (!record) throw new Error(`Chat not found: ${id}`);
 	record.title = title.trim() || "Untitled session";
 	writeChat(record);
-	emit("chats-changed", {});
+	emit("chats-changed", {}, currentScopeId());
 	return record;
 }
 
@@ -201,7 +206,8 @@ function renameChat(id: string, title: string): ChatRecord {
 function deleteChat(id: string): boolean {
 	try {
 		fs.unlinkSync(chatFile(id));
-		emit("chats-changed", {}); // only a real removal — the present-entry law
+		forgetChatScope(id);
+		emit("chats-changed", {}, currentScopeId()); // only a real removal — the present-entry law
 		return true;
 	} catch {
 		return false; // never existed, already deleted, or unreadable — same answer

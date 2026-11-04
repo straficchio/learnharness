@@ -26,6 +26,7 @@ import {
 	ProviderKeyMissingError,
 	type EmissionStats,
 } from "@/src/core";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -109,7 +110,7 @@ async function readImportForm(request: Request): Promise<FormData> {
 	}
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
 	let form: FormData;
 	try {
 		form = await readImportForm(request);
@@ -172,3 +173,4 @@ export async function POST(request: Request) {
 	await Promise.all(workers);
 	return Response.json({ results });
 }
+export const POST = withUser(POSTHandler);

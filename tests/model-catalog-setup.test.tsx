@@ -215,7 +215,7 @@ test("blocked session recovery opens its ordinary picker, never changes Strong o
 	const session = { model: { provider: a.provider, id: a.id }, thinkingLevel: "xhigh" };
 	const requestsOnly = globalThis.fetch; const sessionWrites: unknown[] = [];
 	globalThis.fetch = async (input, init) => {
-		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
+		if (input === "/api/runtime") return Response.json({ models: globals });
 		if (input === "/api/chats/fixture") return Response.json({ settings: session });
 		if (input === "/api/chats/fixture/settings") { const next = JSON.parse(String(init?.body)); sessionWrites.push(next); return Response.json({ settings: next }); }
 		return requestsOnly(input, init);
@@ -244,7 +244,7 @@ for (const result of ["override", "legacy", "http-failure", "network-failure"] a
 	const sessionRead = new Promise<Response>((resolve, reject) => { resolveSession = resolve; rejectSession = reject; });
 	const requestsOnly = globalThis.fetch;
 	globalThis.fetch = async (input, init) => {
-		if (input === "/api/settings") return Response.json({ settings: { models: globals } });
+		if (input === "/api/runtime") return Response.json({ models: globals });
 		if (input === "/api/chats/fixture") return sessionRead;
 		return requestsOnly(input, init);
 	};

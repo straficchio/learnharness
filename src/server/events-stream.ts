@@ -25,9 +25,10 @@
  * ui-stream subscribe() pattern.
  */
 import { subscribe, type ServerEvent } from "../core/events.ts";
+import { standaloneUser, type RequestUser } from "./session.ts";
 
 /** One window's subscription as an SSE Response. */
-export function eventsResponse(): Response {
+export function eventsResponse(user: RequestUser = standaloneUser()): Response {
 	const encoder = new TextEncoder();
 	let teardown: (() => void) | undefined;
 	const stream = new ReadableStream<Uint8Array>({
@@ -58,7 +59,10 @@ export function eventsResponse(): Response {
 			// construction and subscription (single-threaded — the same
 			// attach-then-replay law as ui-stream's subscribe()).
 			unsubscribe = subscribe((event: ServerEvent) => {
-				const { type, ...payload } = event;
+				// Multi-user routing: a scoped event belongs to exactly one user.
+				// Unscoped events are global (subscription state) and admin-only.
+				if (event.scope ? event.scope !== user.id : user.role !== "admin") return;
+				const { type, scope: _scope, ...payload } = event;
 				frame(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);
 			});
 			heartbeat = setInterval(() => frame(": ping\n\n"), 25_000);

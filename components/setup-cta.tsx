@@ -113,3 +113,13 @@ export function useStrongKeyless(): boolean {
 	const { catalog } = useModelCatalog();
 	return strongKeyless(catalog);
 }
+
+/** Server-mode notice for regular users: provider/model configuration is the
+ *  admin's job. Shown where the admin would see the setup CTA. */
+export function AdminSetupNotice() {
+	return (
+		<span className="pointer-events-none inline-flex items-center rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-muted-foreground">
+			Ask the admin to configure models
+		</span>
+	);
+}

@@ -17,6 +17,9 @@ const nextConfig: NextConfig = {
 	// The manual copies the docs require — public/ and .next/static — are
 	// done by scripts/build-server.mjs.
 	output: "standalone",
+	// Headless dev server mode is reachable over the LAN; allow its dev
+	// origins. Normal Electron/plain-dev runs keep the restrictive default.
+	allowedDevOrigins: process.env.LH_SERVER_MODE === "1" ? ["*"] : undefined,
 	// SAFETY (empirically verified 2026-09-17): without this, output file
 	// tracing sweeps the repo's real data/ — chat records, graph ledgers —
 	// INTO the standalone bundle. A shipped desktop app would carry the

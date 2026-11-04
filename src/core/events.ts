@@ -74,6 +74,9 @@ export const SERVER_EVENT_TYPES = [
 /** One notification: the type discriminates the payload. */
 export type ServerEvent<K extends ServerEventType = ServerEventType> = {
 	type: K;
+	/** Multi-user routing tag: the emitter's request scope. Absent = global
+	 *  (subscription state), delivered only to admins in server mode. */
+	scope?: string;
 } & ServerEvents[K];
 
 export type ServerEventListener = (event: ServerEvent) => void;
@@ -102,12 +105,12 @@ export function subscribe(listener: ServerEventListener): () => void {
  *  the emission was for the stores' own bookkeeping anyway). One
  *  listener throwing must never break the others or the emitter: each
  *  call is isolated, the failure logged, the loop continues. */
-export function emit<K extends ServerEventType>(type: K, payload: ServerEvents[K]): void {
+export function emit<K extends ServerEventType>(type: K, payload: ServerEvents[K], scope?: string): void {
 	// Snapshot: a listener that unsubscribes (or subscribes) mid-emit must
 	// not mutate the set under iteration.
 	for (const listener of [...listeners()]) {
 		try {
-			listener({ type, ...payload } as ServerEvent);
+			listener({ type, ...(scope ? { scope } : {}), ...payload } as ServerEvent);
 		} catch (err) {
 			console.error(`[events] listener failed on ${type}:`, err);
 		}

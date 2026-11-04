@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { AUTH_FILE, PATHS } from "../../../config.ts";
+import { AUTH_FILE, BASE_DATA_ROOT } from "../../../config.ts";
 
 /**
  * Shared plumbing for the learner-filesystem tools (ls / find / grep) —
@@ -68,7 +68,7 @@ const under = (root: string, target: string): boolean => {
 
 const HOME = os.homedir();
 const DENIED_ROOTS: readonly string[] = [
-	PATHS.data,
+	BASE_DATA_ROOT,
 	AUTH_FILE,
 	path.join(HOME, ".ssh"),
 	path.join(HOME, ".aws"),

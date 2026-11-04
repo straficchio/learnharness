@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { LEDGER_FILES, POSITIONS_FILE } from "../../config.ts";
+import { LEDGER_FILES, scopedGraphFile } from "../../config.ts";
 import type { GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
@@ -9,7 +9,7 @@ import {
 	deleteNodeTraces,
 	type NodeDeletionStats,
 } from "../core/graph-deletion.ts";
-import { extractionStatuses } from "../agent/subagents/extraction.ts";
+import { extractionRunningForScope } from "./extraction-scope.ts";
 import { stores } from "./stores.ts";
 import { callCost } from "./pricing.ts";
 
@@ -61,7 +61,7 @@ export function graphRevision(): number {
 		LEDGER_FILES.chains,
 		LEDGER_FILES.sessions,
 		LEDGER_FILES.coverage,
-		POSITIONS_FILE,
+		scopedGraphFile("positions.json"),
 	]) {
 		try {
 			revision = Math.max(revision, fs.statSync(file).mtimeMs);
@@ -104,7 +104,7 @@ export type NodeDeleteOutcome =
  *     existingIds guard) — no dangling edges, no resurrection.
  */
 export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
-	if (extractionStatuses().length > 0) {
+	if (extractionRunningForScope()) {
 		return {
 			ok: false,
 			status: 409,

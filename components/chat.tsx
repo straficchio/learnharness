@@ -5,7 +5,8 @@ import { useChatSession } from "@/components/session";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
-import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
+import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill, AdminSetupNotice } from "@/components/setup-cta";
+import { useSessionUser } from "@/components/session-user";
 import { useStickToBottomContext, type StickToBottomContext } from "use-stick-to-bottom";
 import {
 	Conversation,
@@ -573,6 +574,8 @@ export function Chat({
 	// Saved slot completeness is live, but the session's selected route
 	// comes from its own ordinary model control, never today's Strong pin.
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
+	const { user: sessionUser } = useSessionUser();
+	const canConfigure = sessionUser.role === "admin";
 	const catalogRef = useRef(catalog);
 	catalogRef.current = catalog;
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
@@ -1221,7 +1224,7 @@ export function Chat({
 		const t = textRef.current.trim();
 		if (!t) return;
 		if (zeroKeys) {
-			setSetupOpen(true);
+			if (canConfigure) setSetupOpen(true);
 			return;
 		}
 		if (selectedModelUnavailable(catalog, selectedModel)) {
@@ -1740,7 +1743,13 @@ export function Chat({
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
-						zeroKeys ? (
+						!canConfigure ? (
+							(zeroKeys || !configured) && (
+								<div className="pointer-events-auto mb-2 flex justify-center">
+									<AdminSetupNotice />
+								</div>
+							)
+						) : zeroKeys ? (
 							<ZeroKeysPill onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (

@@ -54,28 +54,28 @@ describe("fetchGraphRead — one truth with the extraction trigger (2026-10-02)"
 	};
 
 	it("an absent graph section denominates at the factory 4096 — never a hand-rolled constant, never a missing ring", async () => {
-		const restore = stub({ settings: { version: 1 } });
+		const restore = stub({});
 		const read = await fetchGraphRead();
 		restore();
 		assert.deepEqual(read, { enabled: true, chunkTokens: 4096 });
 	});
 
 	it("the owner repro shape — graph section present, budget never written — is the factory", async () => {
-		const restore = stub({ settings: { version: 1, graph: { enabled: true } } });
+		const restore = stub({ graph: { enabled: true } });
 		const read = await fetchGraphRead();
 		restore();
 		assert.equal(read?.chunkTokens, 4096, "the record lacks the key: factory, not a stale constant");
 	});
 
-	it("first boot (settings null) resolves factory — the ring shows, at the true budget", async () => {
-		const restore = stub({ settings: null });
+	it("first boot (no runtime graph) resolves factory — the ring shows, at the true budget", async () => {
+		const restore = stub({});
 		const read = await fetchGraphRead();
 		restore();
 		assert.deepEqual(read, { enabled: true, chunkTokens: 4096 });
 	});
 
 	it("a custom budget rides through verbatim", async () => {
-		const restore = stub({ settings: { version: 1, graph: { enabled: true, extractionChunkTokens: 2000 } } });
+		const restore = stub({ graph: { enabled: true, extractionChunkTokens: 2000 } });
 		const read = await fetchGraphRead();
 		restore();
 		assert.equal(read?.chunkTokens, 2000);

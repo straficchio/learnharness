@@ -54,7 +54,7 @@ async function fixture(failRead = false) {
 		cancelAnimationFrame: clearTimeout,
 		fetch: async (url: string, init?: RequestInit) => {
 			if (url === "/api/keys") return Response.json({ keys: state.keys, providers: [] });
-			if (url === "/api/settings") return state.failRead ? Response.json({}, { status: 500 }) : Response.json({ settings: state.record });
+			if (url === "/api/runtime") return state.failRead ? Response.json({}, { status: 500 }) : Response.json({ dictation: state.record.dictation });
 			assert.equal(url, "/api/settings/dictation");
 			const body = JSON.parse(init!.body as string);
 			state.writes.push(body.language);

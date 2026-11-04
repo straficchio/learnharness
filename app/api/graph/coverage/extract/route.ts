@@ -10,11 +10,12 @@
  * flight (the dock is the source of truth for that); failures are logged
  * by the pipeline and leave coverage untouched — the button stays honest.
  */
-import { extraction, extractionStatuses } from "@/src/server";
+import { extraction, extractionStatuses, stores } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
 	}
+	if (!stores.chatStore.getChat(chatId)) return Response.json({ error: "Session not found" }, { status: 404 });
 	if (extractionStatuses().some((run) => run.kind === "chat" && run.chatId === chatId)) {
 		return Response.json({ error: "An extraction run is already in flight for this session" }, { status: 409 });
 	}
@@ -35,3 +37,4 @@ export async function POST(request: Request) {
 	});
 	return Response.json({ started: true }, { status: 202 });
 }
+export const POST = withUser(POSTHandler);

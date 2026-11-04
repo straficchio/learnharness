@@ -11,6 +11,7 @@ import { hasBulkSelection, pruneSelection, selectAllVisible, toggleSelection } f
 import type { ChatDeleteMode } from "@/src/core";
 import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
+import { AccountMenu } from "@/components/account-menu";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -989,6 +990,9 @@ function SessionsSidebar() {
 					    flex-1, so this pins to the bottom. Sidebar closed = the
 					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
+
+					{/* Server-mode account controls: change password / log out. */}
+					<AccountMenu />
 
 					{/* Settings entry (settings-app wave): same row language as
 					    New session — quiet, bottom-pinned, opens the centered

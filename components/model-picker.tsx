@@ -10,6 +10,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { useModelCatalog } from "@/components/model-catalog";
+import { useSessionUser } from "@/components/session-user";
 export { useModelCatalog } from "@/components/model-catalog";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
 
@@ -39,6 +40,11 @@ export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Ma
  */
 export function ModelControl({ chatId, onModelChange }: { chatId?: string; onModelChange?: (model: string | undefined) => void }) {
 	const { catalog, refresh } = useModelCatalog();
+	const { user } = useSessionUser();
+	// A non-admin may pick a model for a real session, but the new-session
+	// draft's control edits the SHARED strong slot. That is admin config;
+	// regular users change the session model after the chat exists.
+	const canEdit = chatId !== undefined || user.role === "admin";
 	const [models, setModels] = useState<ModelsSettings | undefined>();
 	// A successful read with no settings is a legacy session; undefined
 	// means no session record is known yet, not permission to inherit Strong.
@@ -63,9 +69,9 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					/* same read-only posture as a models-section failure */
 				});
 		}
-		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
-			.then((body) => setModels(body.settings?.models ?? undefined))
+		fetch("/api/runtime")
+			.then((r) => r.json() as Promise<{ models?: ModelsSettings }>)
+			.then((body) => setModels(body.models ?? undefined))
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only
 				   ("—" triggers, closed menus) — same posture as a
@@ -211,6 +217,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// replace-whole-section discipline).
 	const apply = useCallback(
 		(provider: string, id: string, level: ThinkingLevel | undefined) => {
+			if (!canEdit) return;
 			if (chatId) {
 				void saveChat({ model: { provider, id }, thinkingLevel: level });
 			} else {
@@ -218,7 +225,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				void save(composeSlotModel(models, "strong", provider, id, level ?? ""));
 			}
 		},
-		[chatId, models, save, saveChat],
+		[canEdit, chatId, models, save, saveChat],
 	);
 
 	// Shortcut seams (keyboard wave A): ⌘K opens the model menu (the
@@ -227,17 +234,18 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// tab-focus. Both work from any focus, including mid-typing.
 	useEffect(() => {
 		const onOpenPicker = () => {
+			if (!canEdit) return;
 			setOpen("model");
 			setError(null);
 			refresh(); // mid-session key changes widen the menu (cache fix)
 		};
 		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
 		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh]);
+	}, [canEdit, refresh]);
 
 	useEffect(() => {
 		const onCycleThinking = () => {
-			if (levels.length === 0) return;
+			if (!canEdit || levels.length === 0) return;
 			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
 			const next = levels[(idx + 1) % levels.length];
 			if (next === undefined) return;
@@ -245,7 +253,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		};
 		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
 		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
+	}, [canEdit, levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
 
 	// Selecting a model (click and Enter share one path): keep the
 	// thinking level only when the new model supports it — otherwise
@@ -282,8 +290,10 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				<button
 				type="button"
 				data-testid="stats-model"
-				onClick={() => openMenu("model")}
+				onClick={() => { if (canEdit) openMenu("model"); }}
 				aria-expanded={open === "model"}
+				aria-disabled={!canEdit}
+				title={canEdit ? undefined : "The admin sets the default model. Change it after starting a session."}
 				// Chrome look (owner, fix wave round 3): matches the graph
 				// view's floating top-right buttons (import notes, gear,
 				// coverage) — blurred, fuller opacity, shadowed — so the
@@ -308,9 +318,10 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				onClick={() => {
 					// No model picked → nothing to set a level FOR: the click
 					// is a no-op, never an empty menu.
-					if (entry === undefined) return;
+					if (!canEdit || entry === undefined) return;
 					openMenu("thinking");
 				}}
+				aria-disabled={!canEdit}
 				aria-expanded={open === "thinking"}
 				// Chrome look (owner, fix wave round 3): matches the graph
 				// view's floating top-right buttons (import notes, gear,

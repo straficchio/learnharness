@@ -16,6 +16,7 @@ import {
 	parseSessionExport,
 } from "@/src/core";
 import { importSessionRecord } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -160,10 +161,12 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 	return jsonResponse({ ok: true, imported, replaced, conflicts, failures });
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function POSTHandler(req: Request): Promise<Response> {
 	const url = new URL(req.url);
 	const replace = url.searchParams.get("replace") === "1";
 	const zipRequested =
 		url.searchParams.get("zip") === "1" || (req.headers.get("content-type") ?? "").includes("application/zip");
 	return zipRequested ? importZip(req, replace) : importSingle(req, replace);
 }
+
+export const POST = withUser(POSTHandler);

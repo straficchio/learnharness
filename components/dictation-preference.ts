@@ -32,14 +32,14 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 		needsRead = true;
 		reading = Promise.resolve().then(async () => {
 			try {
-				const res = await request("/api/settings");
+				const res = await request("/api/runtime");
 				if (!res.ok) throw new Error();
-				const body = await res.json() as { settings: UserSettings | null };
-				if (!("settings" in body)) throw new Error();
-				const record = sanitizeUserSettings(body.settings);
-				if (body.settings !== null && record === null) throw new Error();
+				const body = await res.json() as { dictation?: { language?: DictationLanguage }; settings?: UserSettings | null };
 				if (version !== revision) return getLanguage();
-				const language = record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language;
+				// /api/runtime is the multi-user read; the settings fallback keeps
+				// older fixtures/records working during the transition.
+				const legacy = sanitizeUserSettings(body.settings);
+				const language = body.dictation?.language ?? legacy?.dictation?.language ?? FACTORY_SETTINGS.dictation.language;
 				needsRead = false;
 				publish({ language, error: null });
 				return language;

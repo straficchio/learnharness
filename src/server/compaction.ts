@@ -45,6 +45,7 @@ import {
 	type LhMarkerMessage,
 } from "../core/index.ts";
 import { emit } from "../core/events.ts";
+import { currentScopeId } from "../core/request-scope.ts";
 import type { ChatStore } from "../core/ports.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { runSubagent } from "../agent/subagents/pi-run.ts";
@@ -223,7 +224,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		kind: deps.kind,
 	});
 
-	emit("compaction-changed", { chatId, running: true });
+	emit("compaction-changed", { chatId, running: true }, currentScopeId());
 	try {
 		const summarize = deps.summarize ?? subagentSummarizer;
 		const { summary, usage } = await summarize(prompt, deps.engine);
@@ -260,14 +261,14 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		});
 		// Notify-then-fetch: the record gained the marker (the client's
 		// dividers appear) and the status event ends the send gate.
-		emit("record-changed", { chatId });
+		emit("record-changed", { chatId }, currentScopeId());
 	} catch (err) {
 		// A failed compaction leaves the record untouched — the next
 		// turn-start gate retries (the same self-healing law as the
 		// extraction trigger).
 		console.error(`[chat ${chatId}] compaction failed:`, err);
 	} finally {
-		emit("compaction-changed", { chatId, running: false });
+		emit("compaction-changed", { chatId, running: false }, currentScopeId());
 	}
 }
 

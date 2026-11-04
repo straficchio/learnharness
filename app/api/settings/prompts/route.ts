@@ -17,13 +17,16 @@
  */
 
 import { effectivePromptSegments, readSettingsRecord } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
 	const switches = readSettingsRecord()?.agent?.prompts ?? {};
 	return Response.json({
 		prober: effectivePromptSegments("prober", switches),
 		teacher: effectivePromptSegments("teacher", switches),
 	});
 }
+
+export const GET = withUser(GETHandler, { admin: true });

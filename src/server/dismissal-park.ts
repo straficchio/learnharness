@@ -26,6 +26,7 @@
  */
 
 import { ChatInputError, dismissAppends, emit } from "../core";
+import { currentScopeId } from "../core/request-scope.ts";
 import type { ChatStore } from "../core/ports.ts";
 
 /** The parked dismissal body — exactly the parsed input the dismiss route
@@ -72,7 +73,7 @@ export function applyParkedDismissal(chatStore: ChatStore, chatId: string): void
 	try {
 		const appends = dismissAppends(record, input as Parameters<typeof dismissAppends>[1]);
 		chatStore.saveMessages(chatId, [...record.messages, ...appends]);
-		emit("record-changed", { chatId });
+		emit("record-changed", { chatId }, currentScopeId());
 	} catch (err) {
 		if (err instanceof ChatInputError) return; // never materialized — drop
 		throw err;

@@ -69,6 +69,7 @@ import type { TurnInput } from "../core/input-events.ts";
 import { hasUnresolvedQuestion, endsInDismissal, endsInQuestionRecovery, type LhMessage } from "../core/native-messages.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores, effectiveSettings } from "./stores.ts";
+import { runInChatScope } from "../core/request-scope.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { connectionBackgroundAllowed, isSubscriptionProvider, onSubscriptionChange } from "../agent/subscription-connections.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -621,17 +622,24 @@ state().stopConnectionWatch?.();
 state().stopConnectionWatch = onSubscriptionChange(() => {
 	const s = state();
 	for (const [chatId, agent] of s.liveAgents) {
-		if (!isSubscriptionProvider(agent.state?.model?.provider) || automaticFollowUpAllowed(chatId, agent)) continue;
-		const consumed = new Set(agent.state.messages.map((m) => (m as { id?: string }).id));
-		const pending = (s.queues.get(chatId) ?? []).filter((entry) => entry.handedTo === agent && !consumed.has(entry.steer.id));
-		if (pending.length === 0) continue;
-		agent.clearSteeringQueue();
-		for (const entry of pending) entry.handedTo = undefined;
-		for (const entry of s.userSteers.get(chatId) ?? []) if (!consumed.has(entry.message.id)) entry.handedTo = undefined;
-		handOffEligible(chatId, agent); // only unconsumed learner input; never replay consumed steers
+		// Connection changes are a GLOBAL event; each chat must be handled in
+		// its owner's data scope. Without this, a non-admin's chat would be
+		// read/written through the admin's base root.
+		runInChatScope(chatId, () => {
+			if (!isSubscriptionProvider(agent.state?.model?.provider) || automaticFollowUpAllowed(chatId, agent)) return;
+			const consumed = new Set(agent.state.messages.map((m) => (m as { id?: string }).id));
+			const pending = (s.queues.get(chatId) ?? []).filter((entry) => entry.handedTo === agent && !consumed.has(entry.steer.id));
+			if (pending.length === 0) return;
+			agent.clearSteeringQueue();
+			for (const entry of pending) entry.handedTo = undefined;
+			for (const entry of s.userSteers.get(chatId) ?? []) if (!consumed.has(entry.message.id)) entry.handedTo = undefined;
+			handOffEligible(chatId, agent); // only unconsumed learner input; never replay consumed steers
+		});
 	}
 	for (const chatId of s.queues.keys()) {
-		if (automaticFollowUpAllowed(chatId, s.liveAgents.get(chatId))) void pump(chatId);
+		runInChatScope(chatId, () => {
+			if (automaticFollowUpAllowed(chatId, s.liveAgents.get(chatId))) void pump(chatId);
+		});
 	}
 });
 

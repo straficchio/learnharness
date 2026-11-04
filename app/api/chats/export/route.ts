@@ -14,6 +14,7 @@ import {
 	sessionExportFilename,
 } from "@/src/core";
 import { getChat } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ function validIds(value: unknown): string[] | null {
 	return ids;
 }
 
-export async function POST(req: Request): Promise<Response> {
+async function POSTHandler(req: Request): Promise<Response> {
 	const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;
 	const ids = validIds(body?.ids);
 	if (!ids || ids.length === 0) {
@@ -61,3 +62,5 @@ export async function POST(req: Request): Promise<Response> {
 		},
 	});
 }
+
+export const POST = withUser(POSTHandler);

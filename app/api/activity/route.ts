@@ -6,9 +6,12 @@
  * chat-scoped and untouched.
  */
 import { activityFeed } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
 	return Response.json(activityFeed());
 }
+
+export const GET = withUser(GETHandler);

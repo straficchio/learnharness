@@ -7,7 +7,8 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
-import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
+import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill, AdminSetupNotice } from "@/components/setup-cta";
+import { useSessionUser } from "@/components/session-user";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
@@ -46,6 +47,8 @@ export function Home({
 	// a topic opens the setup dialog WITH THE DRAFT PRESERVED (Save
 	// stores slots only; the learner sends the message themselves).
 	const { catalog, configured, zeroKeys } = useModelSetup(initialConfigured);
+	const { user: sessionUser } = useSessionUser();
+	const canConfigure = sessionUser.role === "admin";
 	const [setupOpen, setSetupOpen] = useState(false);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// topic draft; the strip lives in the stats bar's middle slot.
@@ -115,7 +118,7 @@ export function Home({
 		// Unconfigured: the send INTERCEPTS into the setup flow (the draft
 		// stays in the textarea; the learner sends it after Save).
 		if (!configured) {
-			setSetupOpen(true);
+			if (canConfigure) setSetupOpen(true);
 			return;
 		}
 		// The pre-send KEY guards (owner interlude, no-orphan-chats): the
@@ -126,7 +129,7 @@ export function Home({
 		// an unavailable selection with another provider opens its ordinary
 		// picker. The server's admission gate remains the belt.
 		if (zeroKeys) {
-			setSetupOpen(true);
+			if (canConfigure) setSetupOpen(true);
 			return;
 		}
 		const strong = catalog?.slots.strong?.model;
@@ -226,7 +229,9 @@ export function Home({
 								onClear={() => setPracticeProps([])}
 							/>
 						)}
-						setup={zeroKeys ? (
+						setup={!canConfigure ? (
+							(zeroKeys || !configured) && <AdminSetupNotice />
+						) : zeroKeys ? (
 							<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 						) : (
 							!configured && (

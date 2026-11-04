@@ -52,6 +52,9 @@ import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { DeveloperSection } from "./developer-section.tsx";
+import { UsersSection } from "./users-section.tsx";
+import { ServerSection } from "./server-section.tsx";
+import { useSessionUser } from "@/components/session-user";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
@@ -65,6 +68,8 @@ const SECTIONS = [
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
+	{ id: "users", label: "Users" },
+	{ id: "server", label: "Server" },
 	{ id: "developer", label: "Developer" },
 	{ id: "general", label: "General" },
 ] as const;
@@ -85,23 +90,31 @@ export function SettingsDialogProvider({
 }: {
 	children: React.ReactNode;
 }) {
+	const { user, serverMode } = useSessionUser();
+	const defaultSection: SectionId = user.role === "admin" ? "keys" : "appearance";
 	const [show, setShow] = useState(false);
-	const [landOn, setLandOn] = useState<SectionId>("keys");
+	const [landOn, setLandOn] = useState<SectionId>(defaultSection);
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
 	const open = useCallback((section?: string, row?: string) => {
-		setLandOn(section ? section as SectionId : "keys");
+		setLandOn(section ? section as SectionId : defaultSection);
 		setLandOnRow(row ?? null);
 		setShow(true);
-	}, []);
+	}, [defaultSection]);
 	useEffect(() => window.lh?.onOpenSettings?.((section) => open(section)), [open]);
-	return (
-		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
+	const content = (
+		<DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
 				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
 			)}
-		</DialogContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
+		</DialogContext.Provider>
 	);
+	// These providers poll the shared subscription controls; only the admin
+	// may read them in server mode. A regular user's single Appearance
+	// section never needs them.
+	return user.role === "admin"
+		? <ChatGPTUIProvider><NativeSubscriptionUIProvider>{content}</NativeSubscriptionUIProvider></ChatGPTUIProvider>
+		: content;
 }
 
 export function useSettingsDialog() {
@@ -147,6 +160,15 @@ export function SettingsDialogBody({
 	initialRow?: string | null;
 }) {
 	const { onAppearanceChange } = useAppearance();
+	const { user, serverMode, standalone } = useSessionUser();
+	const admin = user.role === "admin";
+	const visibleSections = SECTIONS.filter((section) => {
+		if (!admin) return section.id === "appearance";
+		if (section.id === "users" || section.id === "server") return serverMode;
+		if (section.id === "general") return standalone;
+		return true;
+	});
+	const fallbackSection: SectionId = admin ? "keys" : "appearance";
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
 		undefined,
 	);
@@ -183,15 +205,17 @@ export function SettingsDialogBody({
 			window.removeEventListener(MENU_CLOSE_EVENT, onClose);
 		};
 	}, []);
-	const [active, setActive] = useState<SectionId>(initialSection);
+	const [active, setActive] = useState<SectionId>(() => visibleSections.some((section) => section.id === initialSection) ? initialSection : fallbackSection);
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
 	// picker itself died with wave 7, the mechanism is general) changes
 	// initialSection under our feet — follow it, or the link silently does
 	// nothing.
 	useEffect(() => {
-		setActive(initialSection);
-	}, [initialSection]);
+		setActive(visibleSections.some((section) => section.id === initialSection) ? initialSection : fallbackSection);
+		// The visible set is derived from the session; the fallback is the
+		// section a hidden deep-link lands on instead of a blank pane.
+	}, [initialSection, admin, serverMode, standalone]);
 
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
@@ -311,7 +335,7 @@ export function SettingsDialogBody({
 					data-testid="settings-nav"
 					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2"
 				>
-					{SECTIONS.map((s) => (
+					{visibleSections.map((s) => (
 						<button
 							key={s.id}
 							type="button"
@@ -449,6 +473,16 @@ export function SettingsDialogBody({
 									testid="section-keyboard"
 								>
 									<KeyboardSection />
+								</SettingsSection>
+							)}
+							{active === "users" && (
+								<SettingsSection title="Users" hint="Server accounts" testid="section-users">
+									<UsersSection />
+								</SettingsSection>
+							)}
+							{active === "server" && (
+								<SettingsSection title="Server" hint="Headless server settings" testid="section-server">
+									<ServerSection />
 								</SettingsSection>
 							)}
 							{active === "developer" && (

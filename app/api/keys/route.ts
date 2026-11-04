@@ -18,9 +18,12 @@
  * (env always wins).
  */
 import { keyStatuses, providerKeyList } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
 	return Response.json({ keys: keyStatuses(), providers: providerKeyList() });
 }
+
+export const GET = withUser(GETHandler, { admin: true });

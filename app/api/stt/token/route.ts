@@ -14,8 +14,9 @@
  * keys return FORBIDDEN here.
  */
 import { keyValue } from "@/src/server";
+import { withUser } from "@/src/server";
 
-export async function GET() {
+async function GETHandler() {
 	const key = keyValue("DEEPGRAM_API_KEY");
 	if (!key) {
 		return Response.json(
@@ -46,3 +47,5 @@ export async function GET() {
 		return Response.json({ message: "Deepgram unreachable" }, { status: 502 });
 	}
 }
+
+export const GET = withUser(GETHandler);

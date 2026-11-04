@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
+import { withPageUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default async function ChatPage({
 	params: Promise<{ id: string }>;
 	searchParams: Promise<{ prompt?: string }>;
 }) {
+	return withPageUser(async () => {
 	const [{ id }, { prompt }] = await Promise.all([params, searchParams]);
 	const chat = getChat(id);
 	if (!chat) notFound();
@@ -38,4 +40,5 @@ export default async function ChatPage({
 			initiallyCompacting={compactionInFlight(chat.id)}
 		/>
 	);
+	});
 }

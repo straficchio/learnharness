@@ -13,14 +13,15 @@
  * touching disk: garbage clamps or falls back to defaults, never throws.
  */
 import { readRenderSettings, writeRenderSettings } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
 	return Response.json(readRenderSettings());
 }
 
-export async function PUT(request: Request) {
+async function PUTHandler(request: Request) {
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -29,3 +30,7 @@ export async function PUT(request: Request) {
 	}
 	return Response.json(writeRenderSettings(body));
 }
+
+export const GET = withUser(GETHandler);
+
+export const PUT = withUser(PUTHandler);

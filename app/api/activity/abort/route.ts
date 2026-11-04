@@ -17,9 +17,10 @@
  * Extraction abort is idempotent by design (aborting with nothing in
  * flight is success — the blob is gone either way) -> 200.
  */
-import { abortExtraction, abortJob, abortTurn } from "@/src/server";
+import { abortExtraction, abortJob, abortTurn, stores } from "@/src/server";
+import { withUser } from "@/src/server";
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
 	let body: unknown;
 	try {
 		body = await req.json();
@@ -43,12 +44,17 @@ export async function POST(req: Request) {
 		return Response.json({ ok: true });
 	}
 	if (kind === "turn") {
+		if (!stores.chatStore.getChat(id)) return Response.json({ ok: false, reason: "not_found" }, { status: 404 });
 		const outcome = abortTurn(id);
 		if (!outcome.ok) return Response.json({ ok: false, reason: outcome.reason }, { status: 409 });
 		return Response.json({ ok: true });
 	}
 	// kind === "extraction": true cancellation; idempotent (nothing in
-	// flight is success — same dock outcome)
+	// flight is success — same dock outcome). The scoped ownership check
+	// keeps a foreign chat id from touching another user's run.
+	if (!stores.chatStore.getChat(id)) return Response.json({ ok: false, reason: "not_found" }, { status: 404 });
 	abortExtraction(id);
 	return Response.json({ ok: true });
 }
+
+export const POST = withUser(POSTHandler);

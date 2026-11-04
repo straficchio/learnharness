@@ -34,8 +34,9 @@ import { PATHS } from "../../config.ts";
 const CAP_BYTES = 20 * 1024 * 1024;
 const PRIVATE_FIELD = /^(?:headers|authorization|proxyauthorization|apikey|accesstoken|refreshtoken|clientsecret|credentials|password|token)$/i;
 
-/** Test seam: redirect the trace directory. */
-export const modelTraceDir = { current: path.join(PATHS.debug, "model-traces") };
+/** Test seam: redirect the trace directory. null = resolve the ACTIVE
+ *  user's debug root at call time (multi-user). */
+export const modelTraceDir = { current: null as string | null };
 /** Test seam: shrink the per-session cap. */
 export const modelTraceCap = { current: CAP_BYTES };
 
@@ -72,7 +73,7 @@ function safeSessionId(sessionId: string): string {
 }
 
 function fileFor(sessionId: string): string {
-	return path.join(modelTraceDir.current, `${safeSessionId(sessionId)}.jsonl`);
+	return path.join(modelTraceDir.current ?? path.join(PATHS.debug, "model-traces"), `${safeSessionId(sessionId)}.jsonl`);
 }
 
 /** Redact credential/header fields and replace image bytes with a size note. */

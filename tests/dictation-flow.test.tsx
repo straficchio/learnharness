@@ -72,10 +72,10 @@ async function fixture(language: "pl" | "en" = "pl", delayedRead?: Promise<Respo
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string, init?: RequestInit) => {
 			if (url === "/api/stt/token") return Response.json({ token: "test-token" });
-			if (url === "/api/settings") {
+			if (url === "/api/runtime") {
 				state.reads++;
 				if (state.nextRead) { const response = state.nextRead; state.nextRead = undefined; return response; }
-				return state.readFails ? Response.json({}, { status: 500 }) : Response.json({ settings: state.record });
+				return state.readFails ? Response.json({}, { status: 500 }) : Response.json({ dictation: state.record.dictation });
 			}
 			assert.equal(url, "/api/settings/dictation");
 			assert.equal(init?.method, "PUT");
@@ -139,7 +139,7 @@ test("waits for the saved language; reconnect preserves it and finals still flus
 	assert.equal(f.state.active, true, "the settings row locks while connecting");
 	assert.equal(f.state.captures, 0);
 	assert.equal(Socket.all.length, 0, "must not open a default-English socket before settings arrive");
-	await act(async () => { read.resolve(Response.json({ settings: f.state.record })); });
+	await act(async () => { read.resolve(Response.json({ dictation: f.state.record.dictation })); });
 	const first = Socket.all[0]!;
 	assert.equal(first.language, "pl");
 	await act(async () => { first.open(); first.final("Cześć"); });
@@ -224,7 +224,7 @@ test("a saved-language refresh gates capture even when an older choice is cached
 	await act(async () => { f.dictation.toggle(); });
 	assert.equal(f.state.captures, 0);
 	assert.equal(Socket.all.length, 0);
-	await act(async () => { read.resolve(Response.json({ settings: f.state.record })); });
+	await act(async () => { read.resolve(Response.json({ dictation: f.state.record.dictation })); });
 	assert.equal(Socket.all[0]!.language, "multi");
 });
 
@@ -235,7 +235,7 @@ test("a stale settings refresh cannot overwrite a newer confirmed choice", async
 	f.state.nextRead = read.promise;
 	await act(async () => { notifySettingsSaved("dictation"); });
 	await act(async () => { await f.setting.save("multi"); });
-	await act(async () => { read.resolve(Response.json({ settings: { version: 1, dictation: { language: "pl" } } })); });
+	await act(async () => { read.resolve(Response.json({ dictation: { language: "pl" } })); });
 	assert.equal(f.setting.language, "multi");
 	await act(async () => { f.dictation.toggle(); });
 	assert.equal(Socket.all[0]!.language, "multi");
@@ -247,7 +247,7 @@ test("cancel while settings load does not open a microphone or socket later", as
 	await f.mount();
 	await act(async () => { f.dictation.toggle(); });
 	await act(async () => { f.dictation.cancel(); });
-	await act(async () => { read.resolve(Response.json({ settings: f.state.record })); });
+	await act(async () => { read.resolve(Response.json({ dictation: f.state.record.dictation })); });
 	assert.equal(f.dictation.phase, "idle");
 	assert.equal(f.state.captures, 0);
 	assert.equal(Socket.all.length, 0);
@@ -285,7 +285,7 @@ test("unmount during a pending language read prevents orphaned capture", async (
 	await f.mount();
 	await act(async () => { f.dictation.toggle(); });
 	await f.unmount();
-	await act(async () => { read.resolve(Response.json({ settings: f.state.record })); });
+	await act(async () => { read.resolve(Response.json({ dictation: f.state.record.dictation })); });
 	assert.equal(f.state.captures, 0);
 	assert.equal(Socket.all.length, 0);
 	assert.equal(isDictationActive(), false);

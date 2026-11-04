@@ -21,6 +21,7 @@
  */
 
 import { emit } from "../core/events.ts";
+import { currentScopeId } from "../core/request-scope.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 
 interface LhGlobal {
@@ -46,7 +47,7 @@ export function beginTurn(chatId: string): boolean {
 	if (isTurnRunning(chatId)) return false;
 	clearTurnFailure(chatId);
 	inFlight.set(chatId, Date.now());
-	emit("turn-started", { chatId });
+	emit("turn-started", { chatId }, currentScopeId());
 	return true;
 }
 
@@ -58,7 +59,7 @@ export function beginTurn(chatId: string): boolean {
  * defensive no-op endTurn must not fire a spurious settle.
  */
 export function endTurn(chatId: string): void {
-	if (inFlight.delete(chatId)) emit("turn-settled", { chatId });
+	if (inFlight.delete(chatId)) emit("turn-settled", { chatId }, currentScopeId());
 }
 
 /** True while the chat's turn is in flight; lazily evicts stale entries.

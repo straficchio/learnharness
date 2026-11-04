@@ -1,23 +1,17 @@
 /**
- * GET /api/settings — THE user settings record (settings-storage wave,
- * 2026-09-19): the whole delta record at data/settings.json (config.
- * SETTINGS_FILE, via the SettingsStore port). Non-secret by construction —
- * secrets live in auth.json / .env.local and never enter this record.
+ * GET /api/settings — the signed-in user's settings view.
  *
- *   GET → 200 {settings} (the sanitized delta record — absent keys mean
- *         "factory default", never guessed server-side) or 200
- *         {settings: null} on first boot.
- *
- * Section writes go through PUT /api/settings/[section]; the chat defaults
- * also remain writable via the legacy /api/settings/defaults alias.
- * Resolution to concrete values is the client's/core's job
- * (core/settings-resolution.ts resolveSettings — browser-safe).
+ * Admin: the full shared record (with the admin's own per-user appearance).
+ * Regular user: version + their appearance only. Operational read-only data
+ * for the chat UI lives at /api/runtime; the full shared record never leaves
+ * the admin surface.
  */
-
-import { settingsStore } from "@/src/server";
+import { settingsViewFor, withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-	return Response.json({ settings: settingsStore.readSettings() });
+async function GETHandler(_req: Request, _ctx: unknown, user: Parameters<typeof settingsViewFor>[0]) {
+	return Response.json({ settings: settingsViewFor(user) }, { headers: { "Cache-Control": "no-store" } });
 }
+
+export const GET = withUser(GETHandler);

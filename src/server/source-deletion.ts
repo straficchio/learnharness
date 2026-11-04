@@ -1,6 +1,6 @@
 import { deleteSourcesTraces } from "../core/graph-deletion.ts";
 import { folderIsEmpty, type SourceDirectory } from "../core/source-organization.ts";
-import { extractionStatuses } from "../agent/subagents/extraction.ts";
+import { extractionRunningForScope } from "./extraction-scope.ts";
 import { stores } from "./stores.ts";
 import { sourceDirectory } from "./source-organization.ts";
 import { deleteIdleChatRecord, runningWorkBlocker } from "./chats.ts";
@@ -30,7 +30,7 @@ export function deleteSources(raw: unknown): SourceDirectory & { graphRevision: 
 	const request = parseSourceDeletion(raw);
 	const directory = sourceDirectory.read(); // validate organization before any destructive write
 	const targets = directory.sources.filter((s) => request.sourceIds.includes(s.id));
-	if (targets.length && extractionStatuses().length) throw new SourceDeletionError("An extraction is running — try again when the activity dock drains.", 409, "extraction_running");
+	if (targets.length && extractionRunningForScope()) throw new SourceDeletionError("An extraction is running — try again when the activity dock drains.", 409, "extraction_running");
 	if (request.deleteSessions) for (const entry of targets) if (entry.kind === "chat") {
 		const blocker = runningWorkBlocker(entry.id);
 		if (blocker) throw new SourceDeletionError(blocker.error, blocker.status, blocker.code);

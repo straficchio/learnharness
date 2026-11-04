@@ -26,6 +26,7 @@ import type {
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
+import { currentScopeId } from "../../core/request-scope.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
@@ -650,6 +651,9 @@ export interface RunningExtraction {
 	label?: string;
 	phase: ExtractionPhase;
 	startedAt: number;
+	/** Owner scope at registration (multi-user). Absent for standalone or
+	 *  legacy global runs. */
+	scope?: string;
 	/** Live per-stage usage, accumulated as steps bill (the dock's cost /
 	 *  context-window blobs read this through /api/graph/status). */
 	usage: {
@@ -858,12 +862,13 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			label: prev?.label ?? label, // phase changes never lose the label
 			phase,
 			startedAt: prev?.startedAt ?? R.lastStartedAt,
+			scope: prev?.scope ?? currentScopeId(),
 			usage: prev?.usage ?? {}, // phase changes never lose usage
 			controller: prev?.controller ?? new AbortController(),
 		});
 		// Every phase transition announces the dock (push S5, 2026-10-02):
 		// notify-after-write — the registry is the feed's truth.
-		emit("activity-changed", {});
+		emit("activity-changed", {}, currentScopeId());
 	}
 
 	/** Run over (done, failed, aborted — every exit is a finally): the row
@@ -871,7 +876,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  miss the announce (push S5, 2026-10-02). */
 	function finishExtraction(jobKey: string): void {
 		runningExtractions.delete(jobKey);
-		emit("activity-changed", {});
+		emit("activity-changed", {}, currentScopeId());
 	}
 
 	/** Accumulate one billed step into the run's registry entry (live). */
@@ -1431,7 +1436,13 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	/** Every explicit import processes the whole file. Identity, source digest,
 	 * auditor and usage history remain source-scoped; this is not exactly-once. */
 	async function importNotes(input: NotesImportInput): Promise<EmissionStats> {
-		const id = `src_${crypto.createHash("sha256").update(input.filePath).digest("hex").slice(0, 12)}`;
+		// Source ids are path hashes. Two server users can import the same
+		// server path; namespace regular users so the process-global in-flight
+		// registry and usage history cannot collide. Admin/standalone keep the
+		// legacy hash so existing source records remain addressable.
+		const scope = currentScopeId();
+		const namespace = scope && scope !== "usr_admin" && scope !== "local" ? `${scope}:` : "";
+		const id = `src_${crypto.createHash("sha256").update(`${namespace}${input.filePath}`).digest("hex").slice(0, 12)}`;
 		// Acquire BEFORE source upsert: overlapping contents must not alter metadata.
 		if (inFlight.has(id)) throw new NotesImportError("busy", { nodes: 0, chains: 0 }, "This file is already being imported. Try again when it finishes.");
 		inFlight.add(id);

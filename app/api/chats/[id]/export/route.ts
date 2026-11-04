@@ -9,10 +9,11 @@
  */
 import { buildSessionExport, sessionExportFilename } from "@/src/core";
 import { getChat } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
+async function GETHandler(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
 	const record = getChat(id);
 	if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
@@ -26,3 +27,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 		},
 	});
 }
+
+export const GET = withUser(GETHandler);

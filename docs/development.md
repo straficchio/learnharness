@@ -16,6 +16,9 @@ npm run build          # production Next build, including standalone output
 npm start              # serve the production build with Next
 
 npm run desktop:dev    # Next dev + Electron pointed at localhost:3000
+
+npm run server         # headless multi-user server (after npm run build)
+npm run dev:server     # multi-user server with Next dev/HMR
 ```
 
 No API key is required just to start the UI. Configure a provider/connection and the strong, cheap and vision model slots in Settings before model-driven use. There are no factory model choices. OpenRouter is one supported API provider, **not a required gateway for all calls**. Existing sessions keep their explicit conversation model; background roles use their own settings resolution.
@@ -35,7 +38,8 @@ Secrets and machine-specific paths may be supplied through the process environme
 | `DEEPGRAM_API_KEY` | Optional dictation: short-lived token minting on the server; audio streams directly from the browser to Deepgram. |
 | `LOCAL_LLM_API_KEY` | Optional key for an OpenAI-compatible local server (Strata, Ollama, LM Studio, llama.cpp); keyless loopback works without it. |
 | `CHROME_PATH` | Optional Chrome/Chromium executable fallback for demo verification. The Electron browser helper is primary; no extra Chromium is downloaded. PDFs/SVGs use native rendering. |
-| `LH_DATA_DIR` | Relocates mutable chats, jobs, graph, settings and prompt overrides; default is repo `data/`. |
+| `LH_DATA_DIR` | Relocates mutable chats, jobs, graph, settings and prompt overrides; default is repo `data/`. In server mode, non-admin users get `data/users/<id>/` subdirectories. |
+| `LH_SERVER_MODE` | Set by `npm run server` / `npm run dev:server`; enables the login list, session cookies, user management and per-user data roots. See [server mode](server-mode.md). |
 | `LH_AUTH_FILE` | Relocates the API-key/custom-endpoint credential file; default is repo-root `auth.json`, separate from `data/`. |
 
 The packaged desktop host sets its own data/auth locations under Electron `userData`; it does not use the repository's development profile. Auth files are owner-only plaintext, not an encrypted vault. Keep `.env.local`, auth/connection files and learning data out of commits and build artifacts. Do not copy a personal profile into fixtures or a reproduction workspace.
@@ -55,7 +59,7 @@ Web/dev stores `chatgpt-credentials.json`, `github-copilot-credentials.json` and
 
 Sign-in opens a tab in the browser that initiated it; allow that tab if blocked. **Complete ChatGPT sign-in in a browser on the server's machine**, because the callback listener is `127.0.0.1` on that machine. Copilot/Grok use device codes. The Electron dev shell opens provider pages in the system browser. Credentials/refresh remain server-owned; other browsers connected to the same server share its connections and background-use consent, just as they share its keys and learning data.
 
-This is a **trusted local/shared developer-server mode**, not multi-user hosting. Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions prevent ordinary cross-origin browser controls. They are **not user authentication or DNS-rebinding protection**. Subscription support does not change Next's listening/LAN behavior. Do not expose the server to untrusted users or the public Internet without an independent access/host gate. Remote ChatGPT callback routing, per-user isolation and credential import are not implemented.
+This section describes subscription transport in ordinary developer mode. Multi-user hosting is a separate explicit mode: see [server mode](server-mode.md). Server mode adds a login list, session cookies, per-user data roots and an admin-only shared configuration; it is still intended for a **trusted LAN**, not the public Internet. Same-origin JSON/custom-header checks and short-lived, origin-bound, one-use browser-opening actions prevent ordinary cross-origin browser controls; they are **not user authentication or DNS-rebinding protection**. Do not expose the server to untrusted users or the Internet without an independent access/host gate.
 
 ### Local engine (OpenAI-compatible)
 

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { scopeRoot } from "./src/core/request-scope.ts";
 
 /** Repository root (this file is at <root>/config.ts). */
 export const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -13,23 +14,49 @@ export const ROOT = path.dirname(fileURLToPath(import.meta.url));
  * Unset (plain web dev / repo work) it resolves to the repo's data/,
  * byte-for-byte as before. Read-only assets (prompts) stay ROOT-anchored
  * on purpose: they ship inside the app bundle by design.
+ *
+ * MULTI-USER (2026-11-03): this is the BASE root. Admin (and standalone)
+ * records live directly here; every non-admin server user gets
+ * <base>/users/<id>/. PATHS below resolves the ACTIVE request's root through
+ * the AsyncLocalStorage scope; BASE_DATA_ROOT always names the base.
  */
-const DATA_ROOT = process.env.LH_DATA_DIR
+export const BASE_DATA_ROOT = process.env.LH_DATA_DIR
 	? path.resolve(process.env.LH_DATA_DIR)
 	: path.join(ROOT, "data");
+
+/** The base root used by existing callers/tests; per-user paths use PATHS. */
+const DATA_ROOT = BASE_DATA_ROOT;
 
 export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
-	data: DATA_ROOT,
+	/** The ACTIVE user's data root (admin/standalone = BASE_DATA_ROOT). */
+	get data(): string {
+		return scopeRoot(BASE_DATA_ROOT);
+	},
 	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
-	chats: path.join(DATA_ROOT, "chats"),
-	graph: path.join(DATA_ROOT, "graph"),
+	get chats(): string {
+		return path.join(scopeRoot(BASE_DATA_ROOT), "chats");
+	},
+	get graph(): string {
+		return path.join(scopeRoot(BASE_DATA_ROOT), "graph");
+	},
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
-	debug: path.join(DATA_ROOT, "debug"),
+	get debug(): string {
+		return path.join(scopeRoot(BASE_DATA_ROOT), "debug");
+	},
 } as const;
+
+/** The server-wide account registry (hashes live here, never in chat data). */
+export const USERS_FILE = path.join(BASE_DATA_ROOT, "users.json");
+/** Per-user record roots for non-admin accounts. */
+export const USERS_DIR = path.join(BASE_DATA_ROOT, "users");
+/** Headless server configuration (port, host, cookie-signing secret). */
+export const SERVER_CONFIG_FILE = path.join(BASE_DATA_ROOT, "server.json");
+/** Per-scope appearance files (admin/standalone at the base root). */
+export const APPEARANCE_FILE_NAME = "appearance.json";
 
 // ─── Models ────────────────────────────────────────────────────────────────
 // BYOK ALL THE WAY DOWN (owner, 2026-09-22): there are NO factory default
@@ -60,14 +87,19 @@ export type ModelRole =
  * TRUTH (owner, 2026-09-30): edges are a derived view, never stored.
  */
 export const LEDGER_FILES = {
-	nodes: path.join(PATHS.graph, "nodes.jsonl"),
-	chains: path.join(PATHS.graph, "chains.jsonl"),
-	sessions: path.join(PATHS.graph, "sessions.jsonl"),
+	get nodes(): string { return path.join(PATHS.graph, "nodes.jsonl"); },
+	get chains(): string { return path.join(PATHS.graph, "chains.jsonl"); },
+	get sessions(): string { return path.join(PATHS.graph, "sessions.jsonl"); },
 	/** Per-message extraction coverage (contracts/graph.ts CoverageEntry;
 	 *  the checkpoint's replacement for chat extractions — notes keep
 	 *  sessions.jsonl, whole-file as they are). */
-	coverage: path.join(PATHS.graph, "coverage.jsonl"),
+	get coverage(): string { return path.join(PATHS.graph, "coverage.jsonl"); },
 } as const;
+
+/** A graph-family file in the ACTIVE user's scope. */
+export function scopedGraphFile(name: string): string {
+	return path.join(PATHS.graph, name);
+}
 
 /**
  * Notes-import bookkeeping (NOT a ledger): one JSON map, src-id → NotesSource

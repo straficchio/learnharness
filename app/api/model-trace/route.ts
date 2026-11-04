@@ -1,8 +1,9 @@
 import { modelTraceClear, modelTraceSnapshot } from "@/src/server";
+import { withUser } from "@/src/server";
 
 /** GET /api/model-trace?session=<chat>&after=<line> — the chat-side drawer's
  *  read surface. DELETE clears one session's trace file. */
-export async function GET(request: Request) {
+async function GETHandler(request: Request) {
 	const url = new URL(request.url);
 	const session = url.searchParams.get("session");
 	if (!session) return Response.json({ error: "session is required" }, { status: 400 });
@@ -16,10 +17,14 @@ export async function GET(request: Request) {
 	});
 }
 
-export async function DELETE(request: Request) {
+async function DELETEHandler(request: Request) {
 	const url = new URL(request.url);
 	const session = url.searchParams.get("session");
 	if (!session) return Response.json({ error: "session is required" }, { status: 400 });
 	modelTraceClear(session);
 	return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }
+
+export const GET = withUser(GETHandler);
+
+export const DELETE = withUser(DELETEHandler);

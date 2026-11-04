@@ -9,6 +9,7 @@
  */
 import { isLocalBaseUrl } from "@/src/core";
 import { effectiveSettings, keyValue } from "@/src/server";
+import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ interface LocalModelInfo {
 	name?: string;
 }
 
-export async function POST(request: Request) {
+async function POSTHandler(request: Request) {
 	let body: unknown;
 	try {
 		body = await request.json();
@@ -76,3 +77,5 @@ export async function POST(request: Request) {
 		return Response.json({ error: message }, { status: 502 });
 	}
 }
+
+export const POST = withUser(POSTHandler, { admin: true });

@@ -555,7 +555,7 @@ test("browser-only sign-in is disabled; foreground toolbar has no plan badge or 
  await act(async () => root!.unmount()); host?.remove(); root = undefined;
  globalThis.fetch = async (input) => {
   if (input === "/api/models") return Response.json({ models: [], providers: [], slots: {}, defaults: {} });
-  if (input === "/api/settings") return Response.json({ settings: { models: { strong: { model: { provider: "chatgpt", id: "gpt-5" } } } } });
+  if (input === "/api/runtime") return Response.json({ models: { strong: { model: { provider: "chatgpt", id: "gpt-5" } } } });
   throw new Error(`unexpected fixture request ${input}`);
  };
  fixture(connected(false)); await mount(<ModelControl />); assert.match(byTest("stats-model").textContent!, /gpt/i);

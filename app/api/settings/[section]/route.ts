@@ -43,6 +43,9 @@ import {
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
+	writeAppearance,
+	settingsViewFor,
+	withUser,
 	syncLocalEngine,
 	syncModelTrace,
 	invalidateAntigravityCatalog,
@@ -54,7 +57,7 @@ export const dynamic = "force-dynamic";
 /** One parser, result type erased to the common envelope. */
 type AnySectionParser = (body: unknown) => SettingsBodyResult<unknown>;
 
-export async function PUT(request: Request, ctx: { params: Promise<{ section: string }> }) {
+async function PUTHandler(request: Request, ctx: { params: Promise<{ section: string }> }, user: Parameters<typeof settingsViewFor>[0]) {
 	const { section } = await ctx.params;
 	const parser = (SETTINGS_SECTIONS as Record<string, AnySectionParser>)[section];
 	if (!parser) {
@@ -67,6 +70,19 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	const parsed = parser(body);
 	if (!parsed.ok) {
 		return Response.json({ error: parsed.error }, { status: 400 });
+	}
+	// Appearance is the one per-user section: it lives in the ACTIVE user's
+	// appearance.json, never in the shared settings record.
+	if (section === "appearance") {
+		if (!writeAppearance(parsed.settings)) {
+			return Response.json({ error: "Invalid appearance settings." }, { status: 400 });
+		}
+		return Response.json({ settings: settingsViewFor(user) });
+	}
+	// Every other section is shared configuration and admin-only in server
+	// mode. Standalone's synthetic local admin passes.
+	if (user.role !== "admin") {
+		return Response.json({ error: "Admin access required." }, { status: 403 });
 	}
 	// Compare against the same record that this whole-section write replaces.
 	const record = readSettingsRecord() ?? { version: 1 };
@@ -147,5 +163,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// The model-trace gate lives in the agent layer; apply a Developer write
 	// before the response so the drawer's live state matches the record.
 	if (section === "developer") syncModelTrace(next);
-	return Response.json({ settings: next });
+	return Response.json({ settings: settingsViewFor(user) });
 }
+
+export const PUT = withUser(PUTHandler);

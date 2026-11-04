@@ -51,6 +51,7 @@ import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
+import { currentScopeId } from "../core/request-scope.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -353,7 +354,7 @@ export async function handleChatInput(
 			console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 			return new Response("Your input could not be saved. Please try again.", { status: 500 });
 		}
-		emit("record-changed", { chatId });
+		emit("record-changed", { chatId }, currentScopeId());
 		return settledTurnResponse(); // the cheap terminal — no beginTurn, no turn
 	}
 

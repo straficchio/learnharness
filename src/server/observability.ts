@@ -19,7 +19,8 @@
  * from the pipeline's module for the abort route to call.
  */
 
-import { extractionStatuses, type ExtractionPhase } from "../agent/subagents/extraction.ts";
+import { type ExtractionPhase } from "../agent/subagents/extraction.ts";
+import { scopedExtractionRuns } from "./extraction-scope.ts";
 import { chatStore } from "../store/chats.ts";
 import { graphRevision } from "./graph.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
@@ -28,6 +29,7 @@ import { jobCost } from "./pricing.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
+export { scopedExtractionRuns, extractionRunningForScope } from "./extraction-scope.ts";
 export { chatStore } from "../store/chats.ts";
 
 /** A running sub-agent job, joined with its chat's title for the dock.
@@ -86,7 +88,7 @@ export function activityFeed(): {
 			}
 		}
 	}
-	const extractions: ActivityExtraction[] = extractionStatuses().map((run) => ({
+	const extractions: ActivityExtraction[] = scopedExtractionRuns().map((run) => ({
 		id: run.part ? `${run.chatId}#${run.part.i}` : run.chatId,
 		chatId: run.chatId,
 		part: run.part,

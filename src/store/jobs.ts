@@ -12,16 +12,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
+import { currentScopeId } from "../core/request-scope.ts";
 import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
-/** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
-const JOBS_DIR = path.join(PATHS.data, "jobs");
+/** Background jobs (data/jobs), resolved in the ACTIVE user scope. */
+function jobsDir(): string { return path.join(PATHS.data, "jobs"); }
 
 function jobFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid job id: ${id}`);
-	return path.join(JOBS_DIR, `${id}.json`);
+	return path.join(jobsDir(), `${id}.json`);
 }
 
 /** Writes announce on the events channel AFTER the write lands (the
@@ -41,9 +42,9 @@ function createJob(init: CreateJobInit): JobRecord {
 		createdAt: now,
 		updatedAt: now,
 	};
-	fs.mkdirSync(JOBS_DIR, { recursive: true });
+	fs.mkdirSync(jobsDir(), { recursive: true });
 	fs.writeFileSync(jobFile(record.id), JSON.stringify(record, null, "\t"), "utf-8");
-	emit("jobs-changed", { chatId: init.chatId });
+	emit("jobs-changed", { chatId: init.chatId }, currentScopeId());
 	return record;
 }
 
@@ -66,16 +67,16 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	// EVERY write, not just status flips: progress-line updates must reach
 	// the dispatch cards (the view debounces the fetch bursts). A missing id
 	// wrote nothing and stays silent.
-	emit("jobs-changed", { chatId: next.chatId });
+	emit("jobs-changed", { chatId: next.chatId }, currentScopeId());
 	return next;
 }
 
 /** All jobs for a chat, newest activity first. */
 function listJobs(chatId: string): JobRecord[] {
 	try {
-		fs.mkdirSync(JOBS_DIR, { recursive: true });
+		fs.mkdirSync(jobsDir(), { recursive: true });
 		return fs
-			.readdirSync(JOBS_DIR)
+			.readdirSync(jobsDir())
 			.filter((f) => f.endsWith(".json"))
 			.map((f) => getJob(f.slice(0, -5)))
 			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)
@@ -106,7 +107,7 @@ function deleteJobsForChat(chatId: string): number {
 	}
 	// Only when something actually died — a zero-file delete wrote nothing
 	// (the endTurn present-entry law).
-	if (removed > 0) emit("jobs-changed", { chatId });
+	if (removed > 0) emit("jobs-changed", { chatId }, currentScopeId());
 	return removed;
 }
 
