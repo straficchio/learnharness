@@ -1,8 +1,23 @@
 import { readFileSync } from "node:fs";
+import os from "node:os";
 import type { NextConfig } from "next";
 import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
+
+/** Dev-server origins for server mode: the browser may use localhost, the
+ *  loopback IP, or any LAN address. Next matches hostnames exactly (or via
+ *  label wildcards), so enumerate the host machine's addresses. */
+const serverDevOrigins = process.env.LH_SERVER_MODE === "1"
+	? [...new Set([
+		"localhost",
+		"**.localhost",
+		"127.0.0.1",
+		...Object.values(os.networkInterfaces()).flatMap((entries) => (entries ?? [])
+			.filter((entry) => !entry.internal)
+			.map((entry) => entry.address.split("%")[0]!)),
+	])]
+	: undefined;
 
 const nextConfig: NextConfig = {
 	// Public build metadata only; no new runtime Electron version API.
@@ -19,7 +34,7 @@ const nextConfig: NextConfig = {
 	output: "standalone",
 	// Headless dev server mode is reachable over the LAN; allow its dev
 	// origins. Normal Electron/plain-dev runs keep the restrictive default.
-	allowedDevOrigins: process.env.LH_SERVER_MODE === "1" ? ["*"] : undefined,
+	allowedDevOrigins: serverDevOrigins,
 	// SAFETY (empirically verified 2026-09-17): without this, output file
 	// tracing sweeps the repo's real data/ — chat records, graph ledgers —
 	// INTO the standalone bundle. A shipped desktop app would carry the
