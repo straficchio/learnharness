@@ -43,6 +43,30 @@ LH_DATA_DIR=/tmp/lh-server-data LH_PORT=3101 npm run dev:server
 ```
 In server mode the provider-key file defaults to `<data>/auth.json`. If it does not exist and the repository-root `auth.json` does, the launcher copies it once with mode `0600`. Set `LH_AUTH_FILE` explicitly to override.
 
+## Launch scripts
+
+The repository root has one launcher per platform. All three call the same
+`scripts/launch-server.mjs`, so the behavior is identical:
+
+| Platform | File | Start |
+| --- | --- | --- |
+| Linux | `start-server.sh` | `./start-server.sh` |
+| macOS | `start-server.command` | double-click in Finder, or `./start-server.command` |
+| Windows | `start-server.cmd` | double-click, or `start-server.cmd` in a terminal |
+
+The first launch installs dependencies (`npm ci`) and builds the production
+server when `node_modules` or `.next/standalone/server.js` is missing. Later
+launches start immediately. Options:
+
+- `--dev` — run the development server with HMR instead of the production build
+- `--build` — force a fresh production build
+- `--host <addr>` / `--port <n>` — override the bind address or port for this launch
+- `--help` — show the options
+
+A fresh `data/server.json` binds to `0.0.0.0`, so other machines on the LAN can
+connect. Use `--host 127.0.0.1` for a local-only launch. Node.js 22 or newer is
+required (CI uses Node 26).
+
 ## First boot and login
 
 On the first server start, `data/users.json` is created with **one passwordless account named “Admin”**. The login page lists account names; select the admin and either set a password or choose **Skip for now**. The same set-password/skip flow applies to every newly created user.
