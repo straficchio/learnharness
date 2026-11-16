@@ -66,12 +66,12 @@ function requiredValue(flag, value) {
 	return value;
 }
 
-function run(command, commandArgs) {
+function run(command, commandArgs, extraEnv = {}) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, commandArgs, {
 			cwd: ROOT,
 			stdio: "inherit",
-			env: process.env,
+			env: { ...process.env, ...extraEnv },
 			// Windows resolves npm.cmd through the shell; POSIX runs it directly.
 			shell: process.platform === "win32",
 		});
@@ -117,7 +117,10 @@ try {
 	}
 	if (!options.dev && (options.build || !hasProductionBuild())) {
 		console.log("[launch] building the production server (the first build can take several minutes)");
-		await run(NPM, ["run", "build"]);
+		// Next 16.4.3+ can open an interactive security-upgrade menu during
+		// build. A headless launcher must never wait for a keypress; CI skips
+		// the menu without upgrading anything.
+		await run(NPM, ["run", "build"], { CI: "1" });
 		if (!hasProductionBuild()) fail("the build finished but .next/standalone/server.js is missing");
 	}
 } catch (error) {
