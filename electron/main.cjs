@@ -39,10 +39,6 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 
-// Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
-// renderer owns the number; this is the IPC widen target).
-const SIDEBAR_AUTOCLOSE = 928;
-
 const PRODUCT_NAME = "LearnHarness";
 
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
@@ -330,12 +326,10 @@ function createWindow(url) {
 		// appears only once the page has actually rendered.
 		backgroundColor: "#141414",
 		show: false,
-		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
-		// below it even a wrapped chrome row gets cramped and the chat header
-		// (lights gutter 92 + toggle + title) runs out of room. The sidebar
-		// auto-closes below 928 = 640 + 288 (sidebar) in the renderer
-		// (components/sidebar.tsx, SIDEBAR_AUTOCLOSE); its "lh:expand-window"
-		// IPC widens the window back to that threshold.
+		// Narrow-window floor: below 640 the wrapped chrome row gets cramped
+		// and the chat header (lights gutter 92 + toggle + title) runs out of
+		// room. The renderer owns the 928px auto-pin threshold; below it the
+		// sidebar becomes an overlay drawer instead of squeezing the content.
 		minWidth: 640,
 		minHeight: 600,
 	});
@@ -763,21 +757,9 @@ async function main() {
 		setAutoUpdate(enabled);
 	});
 
-	// Sidebar-at-narrow-window (owner, 2026-09-17): the renderer auto-closes
-	// the sidebar below SIDEBAR_AUTOCLOSE (928px); opening it again at that
-	// width asks the window to widen instead — the layout never has to
-	// accommodate a narrow window + open sidebar. Top-left stays fixed, the
-	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
 	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
-	ipcMain.on("lh:expand-window", (event) => {
-		const win = BrowserWindow.fromWebContents(event.sender);
-		if (!win) return;
-		const { x, y, width, height } = win.getBounds();
-		const target = SIDEBAR_AUTOCLOSE;
-		if (width < target) win.setBounds({ x, y, width: target, height });
-	});
 	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url); };
 	app.on("activate", () => {
 		if (BrowserWindow.getAllWindows().length === 0) reopenWindow();

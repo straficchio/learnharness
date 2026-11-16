@@ -43,7 +43,14 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 // spelling here is how the ⌘B bug happened.
 export { kbdEventForAction };
 
-export function KeyboardShortcuts() {
+export function KeyboardShortcuts({
+	overlayOpen = false,
+	onOverlayClose,
+}: {
+	/** The sidebar's modal drawer owns the first Escape (before abort). */
+	overlayOpen?: boolean;
+	onOverlayClose?: () => void;
+} = {}) {
 	const router = useRouter();
 	const [cheatOpen, setCheatOpen] = useState(false);
 	const { open: openSettings } = useSettingsDialog();
@@ -54,8 +61,10 @@ export function KeyboardShortcuts() {
 		router: ReturnType<typeof useRouter>;
 		setCheatOpen: (v: boolean) => void;
 		openSettings: () => void;
-	}>({ router, setCheatOpen, openSettings });
-	handlersRef.current = { router, setCheatOpen, openSettings };
+		overlayOpen: boolean;
+		onOverlayClose?: () => void;
+	}>({ router, setCheatOpen, openSettings, overlayOpen, onOverlayClose });
+	handlersRef.current = { router, setCheatOpen, openSettings, overlayOpen, onOverlayClose };
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
@@ -81,6 +90,16 @@ export function KeyboardShortcuts() {
 				if (cheatOpen) {
 					setCheatOpen(false);
 					e.preventDefault();
+					return;
+				}
+				// The unpinned sidebar is a modal drawer: it owns Escape
+				// before the dictation/abort chain. Surfaces inside it
+				// (search, menus, dialogs) claim the key earlier and never
+				// reach this listener.
+				if (handlersRef.current.overlayOpen) {
+					handlersRef.current.onOverlayClose?.();
+					e.preventDefault();
+					e.stopImmediatePropagation();
 					return;
 				}
 				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): one

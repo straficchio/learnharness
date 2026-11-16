@@ -9,7 +9,7 @@ import { SessionImportButton } from "@/components/session-import";
 import { BulkDeleteDialog, BulkSelectionBar, exportSessionsZip, saveBulkExport } from "@/components/session-bulk";
 import { hasBulkSelection, pruneSelection, selectAllVisible, toggleSelection } from "@/components/session-selection";
 import type { ChatDeleteMode } from "@/src/core";
-import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PinIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { AccountMenu } from "@/components/account-menu";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
@@ -28,34 +28,31 @@ import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 
 /**
- * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
- * sits inline next to the content and can stay open while working in a
- * session. Open state persists across pages (provider lives in the root
- * layout) and across reloads (localStorage).
- */
-
-const STORAGE_KEY = "lh:sidebar-open";
-
-/*
- * Narrow-window behavior (owner, 2026-09-17): below SIDEBAR_AUTOCLOSE the
- * sidebar would squeeze the page below the 640px window floor (the two
- * numbers compose: 640 + 288 sidebar = 928), so it auto-closes — and
- * auto-RESTORES when the window widens again (owner choice: the sidebar
- * pops back, not a manual re-open). The whole behavior is one expression:
- * rendered = pref && !narrow, where pref is the persisted user choice.
- * Manual closes persist and stay closed; auto-close does not touch the
- * preference. Opening the sidebar while narrow asks the Electron shell to
- * widen the window to the threshold (window.lh.expandWindow, IPC in
- * electron/main.cjs) — the resize listener flips `narrow` and the sidebar
- * appears. In the plain browser there is no window to widen and no
- * suppression — a narrow tab opens the sidebar if the user says so.
+ * The sidebar has two layouts:
  *
- * Mirrors SIDEBAR_AUTOCLOSE in electron/main.cjs — keep in sync.
+ * - PINNED — inline `w-72`, sharing the row with the main pane. The user's
+ *   explicit lock, persisted in localStorage.
+ * - UNPINNED — a modal drawer over the main pane: scrim, click-outside and
+ *   Escape close, and the content is `inert` while it is open. It closes on
+ *   navigation.
+ *
+ * With no stored pin preference the layout follows the viewport: pinned at
+ * or above SIDEBAR_AUTOCLOSE, unpinned below it. 928 = the 640px window
+ * floor + the 288px sidebar; below it an inline sidebar would squeeze the
+ * content past its designed minimum. Once the user pins or unpins, that
+ * choice persists and resize no longer overrides it. The old
+ * `lh:sidebar-open` value is migrated: an explicit close becomes an
+ * explicit unpin; otherwise the viewport default applies.
  */
+
+const PIN_STORAGE_KEY = "lh:sidebar-pinned";
+// Pre-pin preference, read once for migration. New writes go to the pin key.
+const LEGACY_OPEN_STORAGE_KEY = "lh:sidebar-open";
+const SIDEBAR_AUTOCLOSE = 928;
+
 import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
 import type { UpdateState } from "@/components/settings/update-settings.tsx";
 import { FilePathDropZone } from "@/components/file-path-drop-zone";
-const SIDEBAR_AUTOCLOSE = 928;
 
 // Module scope, guarded for SSR (the server has no navigator).
 const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
@@ -73,7 +70,6 @@ declare global {
 			openSubscriptionBrowser?: (action: string) => Promise<void>;
 			chatgpt?: ChatGPTControlBridge;
 			subscriptions?: NativeSubscriptionControlBridge;
-			expandWindow: () => void;
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
@@ -90,9 +86,29 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+interface SidebarState {
+	/** Visible: pinned inline, or the unpinned drawer is open. */
+	open: boolean;
+	/** Explicit lock; the inline layout. */
+	pinned: boolean;
+	/** The modal drawer is open (unpinned + open). */
+	overlayOpen: boolean;
+	/** Below the 928px auto-pin threshold. */
+	narrow: boolean;
+	toggle: () => void;
+	/** Close the drawer; a pinned sidebar is unpinned on the way out. */
+	close: (refocus?: boolean) => void;
+	togglePin: () => void;
+}
+
+const SidebarContext = createContext<SidebarState>({
 	open: false,
+	pinned: false,
+	overlayOpen: false,
+	narrow: false,
 	toggle: () => {},
+	close: () => {},
+	togglePin: () => {},
 });
 
 export function useSidebar() {
@@ -107,11 +123,16 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		notifySettingsSaved("keys"); // cover changes missed before this root-lifetime subscription
 		return off;
 	}, []);
-	// Start closed so server and client first-render agree (no hydration
-	// mismatch); the stored value is applied after mount.
-	const [open, setOpen] = useState(false);
+	// Start closed/hydration-safe; the stored pin (or viewport default) is
+	// applied after mount.
+	const [pinned, setPinned] = useState(false);
+	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [narrow, setNarrow] = useState(false);
 	const [mounted, setMounted] = useState(false);
+	// Once the user pins or unpins, resize never overrides the choice.
+	const pinExplicit = useRef(false);
+	// The control that opened the drawer — focus returns here on close.
+	const triggerRef = useRef<HTMLElement | null>(null);
 
 	useEffect(() => {
 		// Electron shell detection (merged chrome, 2026-09-17): keys the
@@ -134,42 +155,100 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		const off = window.lh?.onZoom?.(setZoomVar);
 		void window.lh?.getZoom?.().then(setZoomVar);
 
-		const stored = localStorage.getItem(STORAGE_KEY);
-		// Default: open (first run introduces the sidebar).
-		setOpen(stored === null ? true : stored === "1");
+		const widthNarrow = window.innerWidth < SIDEBAR_AUTOCLOSE;
+		setNarrow(widthNarrow);
+
+		const storedPin = localStorage.getItem(PIN_STORAGE_KEY);
+		const legacyOpen = localStorage.getItem(LEGACY_OPEN_STORAGE_KEY);
+		if (storedPin === "1" || storedPin === "0") {
+			pinExplicit.current = true;
+			setPinned(storedPin === "1");
+		} else if (legacyOpen === "0") {
+			// Migration: a manual close under the old layout is an explicit
+			// unpin, not a preference to overwrite with the new default.
+			pinExplicit.current = true;
+			setPinned(false);
+			localStorage.setItem(PIN_STORAGE_KEY, "0");
+		} else {
+			setPinned(!widthNarrow);
+		}
 		setMounted(true);
 		return () => off?.();
 	}, []);
 
-	// Narrow-window auto-close/auto-restore (see SIDEBAR_AUTOCLOSE note):
-	// fires only on actual resizes — a boolean compare, no layout work.
-	// Both this and the mount effect land before the first paint, so a
-	// narrow window never flashes the open sidebar on load.
+	// Viewport default (see SIDEBAR_AUTOCLOSE note): auto-pin on wide,
+	// auto-unpin + close on narrow. An explicit pin wins at every width.
 	useEffect(() => {
-		if (!IS_ELECTRON) return; // plain-browser tabs open freely
-		const onResize = () => setNarrow(window.innerWidth < SIDEBAR_AUTOCLOSE);
+		const onResize = () => {
+			const nextNarrow = window.innerWidth < SIDEBAR_AUTOCLOSE;
+			setNarrow(nextNarrow);
+			if (!pinExplicit.current) {
+				setPinned(!nextNarrow);
+				setDrawerOpen(false);
+			}
+		};
 		onResize();
 		window.addEventListener("resize", onResize);
 		return () => window.removeEventListener("resize", onResize);
 	}, []);
 
+	const close = useCallback((refocus = true) => {
+		const trigger = triggerRef.current;
+		if (pinned) {
+			// Closing the inline layout is an explicit unpin; the next
+			// mount must not bounce it back to pinned.
+			pinExplicit.current = true;
+			localStorage.setItem(PIN_STORAGE_KEY, "0");
+			setPinned(false);
+		}
+		setDrawerOpen(false);
+		if (!refocus) return;
+		requestAnimationFrame(() => {
+			const target = trigger?.isConnected
+				? trigger
+				: document.querySelector<HTMLElement>('[aria-label="Open sidebar"]');
+			target?.focus();
+		});
+	}, [pinned]);
+
 	const toggle = useCallback(() => {
-		// Opening while narrow (auto-closed, or the user's own closed-at-
-		// narrow): ask the shell to widen to the threshold — the resize
-		// listener flips `narrow` and the sidebar appears. The preference
-		// persists like any other open, so a restart at a narrow width
-		// still auto-restores when widened.
-		if (narrow && !open) {
-			localStorage.setItem(STORAGE_KEY, "0");
-			setOpen(true);
-			window.lh?.expandWindow();
+		if (pinned || drawerOpen) {
+			close();
 			return;
 		}
-		setOpen((v) => {
-			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
-			return !v;
-		});
-	}, [narrow, open]);
+		triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		setDrawerOpen(true);
+	}, [pinned, drawerOpen, close]);
+
+	const togglePin = useCallback(() => {
+		pinExplicit.current = true;
+		if (pinned) {
+			localStorage.setItem(PIN_STORAGE_KEY, "0");
+			setPinned(false);
+			// Unpinning keeps the sidebar in place as the modal drawer.
+			setDrawerOpen(true);
+			return;
+		}
+		localStorage.setItem(PIN_STORAGE_KEY, "1");
+		setPinned(true);
+		setDrawerOpen(false);
+		triggerRef.current = null;
+	}, [pinned]);
+
+	const overlayOpen = !pinned && drawerOpen;
+
+	// Escape closes the modal drawer. Child dialogs/menus that claim the
+	// key (stopPropagation or preventDefault) keep it for themselves.
+	useEffect(() => {
+		if (!overlayOpen) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" || event.defaultPrevented) return;
+			event.preventDefault();
+			close();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [overlayOpen, close]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -184,10 +263,23 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		return () => window.removeEventListener(event, onToggle);
 	}, [toggle]);
 
+	const value = useMemo<SidebarState>(
+		() => ({
+			open: pinned || drawerOpen,
+			pinned,
+			overlayOpen,
+			narrow,
+			toggle,
+			close,
+			togglePin,
+		}),
+		[pinned, drawerOpen, overlayOpen, narrow, toggle, close, togglePin],
+	);
+
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
+		<SidebarContext.Provider value={value}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity,transform]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -405,7 +497,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, pinned, overlayOpen, toggle, close, togglePin } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -716,6 +808,15 @@ function SessionsSidebar() {
 		[pathname, router],
 	);
 
+	// The unpinned drawer is a modal surface: a navigation from inside it
+	// closes it (and does not steal focus back to the opener afterward).
+	const previousPathname = useRef(pathname);
+	useEffect(() => {
+		if (previousPathname.current === pathname) return;
+		previousPathname.current = pathname;
+		if (!pinned && open) close(false);
+	}, [pathname, pinned, open, close]);
+
 	useEffect(() => {
 		clearSelection();
 	}, [pathname, clearSelection]);
@@ -758,11 +859,35 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	return (
-		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
-			aria-hidden={!open}
-		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+		<>
+			{/* Modal scrim: only exists in the unpinned layout. Kept mounted
+			    for the fade, but pointer-inert when the drawer is closed. */}
+			{!pinned && (
+				<div
+					data-testid="sidebar-scrim"
+					aria-hidden="true"
+					onClick={() => close()}
+					className={cn(
+						"fixed inset-0 z-40 bg-black/40 transition-opacity duration-200",
+						open ? "opacity-100" : "pointer-events-none opacity-0",
+					)}
+				/>
+			)}
+			<aside
+				data-testid="sidebar"
+				role={overlayOpen ? "dialog" : undefined}
+				aria-modal={overlayOpen ? true : undefined}
+				aria-label="Sessions sidebar"
+				aria-hidden={!open}
+				inert={!open}
+				className={cn(
+					"sidebar-motion flex h-dvh shrink-0 flex-col border-r bg-background",
+					pinned
+						? "relative w-72"
+						: cn("fixed inset-y-0 left-0 z-50 w-72", open ? "translate-x-0 shadow-2xl" : "-translate-x-full"),
+				)}
+			>
+				<div className="flex h-full w-72 flex-col">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
@@ -791,17 +916,31 @@ function SessionsSidebar() {
 							<LhMark className="size-6" />
 						</Link>
 					</Hint>
-					<Hint label="Close sidebar" action="toggle-sidebar">
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label="Close sidebar"
-							onClick={toggle}
-							className="lh-no-drag"
-						>
-							<PanelLeftCloseIcon className="size-4" />
-						</Button>
-					</Hint>
+					<div className="flex items-center gap-1">
+						<Hint label={pinned ? "Unpin sidebar" : "Pin sidebar"}>
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"}
+								aria-pressed={pinned}
+								onClick={togglePin}
+								className={cn("lh-no-drag", pinned && "bg-accent text-foreground")}
+							>
+								<PinIcon className="size-4" />
+							</Button>
+						</Hint>
+						<Hint label="Close sidebar" action="toggle-sidebar">
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label="Close sidebar"
+								onClick={() => close()}
+								className="lh-no-drag"
+							>
+								<PanelLeftCloseIcon className="size-4" />
+							</Button>
+						</Hint>
+					</div>
 				</div>
 
 				{/* Two doors, STACKED (owner round 8, 2026-10-05 — was a
@@ -1113,19 +1252,21 @@ function SessionsSidebar() {
 					onComplete={onBulkDeleted}
 				/>
 			</aside>
+		</>
 	);
 }
 
-/** The app frame: sidebar inline + content. Rendered once in the root layout. */
+/** The app frame: sidebar pinned inline or overlaid, plus content. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const { overlayOpen, close } = useSidebar();
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
-			<FilePathDropZone className="relative min-w-0 flex-1">{children}</FilePathDropZone>
+			<FilePathDropZone className="relative min-w-0 flex-1" inert={overlayOpen}>{children}</FilePathDropZone>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}
-			<KeyboardShortcuts />
+			<KeyboardShortcuts overlayOpen={overlayOpen} onOverlayClose={close} />
 		</SettingsDialogProvider>
 	);
 }

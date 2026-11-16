@@ -10,7 +10,7 @@ const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app
 
 /** The content area only: the sidebar is deliberately outside this zone.
  * Existing files stay where they are; only quoted path strings enter drafts. */
-export function FilePathDropZone({ children, className }: { children: React.ReactNode; className?: string }) {
+export function FilePathDropZone({ children, className, inert = false }: { children: React.ReactNode; className?: string; inert?: boolean }) {
 	const root = useRef<HTMLElement>(null);
 	const depth = useRef(0);
 	const [dragging, setDragging] = useState(false);
@@ -36,6 +36,7 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 			ref={root}
 			className={className}
 			data-testid="file-path-drop-zone"
+			{...(inert ? { inert: true } : {})}
 			onDragEnter={(event) => {
 				if (!hasFiles(event)) return;
 				event.preventDefault();

@@ -28,7 +28,7 @@ function fixture(connected = false) {
 		consent: async (id, enabled) => { calls.consent.push([id, enabled]); push(id, { allowBackgroundUse: enabled }); },
 		onChange: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
 	};
-	window.lh = { expandWindow() {}, subscriptions: bridge };
+	window.lh = { subscriptions: bridge };
 	return { bridge, calls, login, push, get statuses() { return statuses; } };
 }
 async function mount() {

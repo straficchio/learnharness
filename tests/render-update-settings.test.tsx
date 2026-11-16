@@ -35,7 +35,6 @@ function bridge(initial = state(), snapshot = Promise.resolve(initial)) {
 	let onOpen: ((section: string) => void) | null = null;
 	let checkFailure: Error | null = null;
 	window.lh = {
-		expandWindow() {},
 		getUpdateState: () => { calls.get++; return snapshot; },
 		onUpdateStatus: cb => { listeners.add(cb); return () => { listeners.delete(cb); }; },
 		checkForUpdates: async () => { calls.check++; if (checkFailure) throw checkFailure; },

@@ -60,7 +60,7 @@ test("native web login retains device prompts; only the explicit Open browser ac
 
 test("Electron dev uses its narrow external-browser bridge, without attempting a renderer popup", async () => {
 	const opened: string[] = [];
-	window.lh = { expandWindow() {}, subscriptionTransport: "web", openSubscriptionBrowser: async (target) => { opened.push(target); } };
+	window.lh = { subscriptionTransport: "web", openSubscriptionBrowser: async (target) => { opened.push(target); } };
 	window.open = () => assert.fail("Electron denies renderer popups");
 	globalThis.fetch = async () => Response.json({ value: { pending: true }, browserAction: action });
 	await createWebChatGPTBridge(null).login(); assert.deepEqual(opened, [action]);

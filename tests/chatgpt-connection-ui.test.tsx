@@ -40,7 +40,7 @@ function fixture(initial = disconnected(), overrides: Partial<ChatGPTControlBrid
   consent: async (enabled) => { calls.consent.push(enabled); push({ ...status, allowBackgroundUse: enabled }); return status; },
   onChange: (cb) => { listeners.add(cb); return () => listeners.delete(cb); }, ...overrides,
  };
- window.lh = { expandWindow() {}, chatgpt: bridge };
+ window.lh = { chatgpt: bridge };
  return { calls, bridge, push, get status() { return status; }, complete() { push({ ...connected(status.allowBackgroundUse), pending: false }); } };
 }
 function recoveryController({ writeFails = false, tokens = "valid" }: { writeFails?: boolean; tokens?: "valid" | "missing" | "restricted" | "scope" | "expired" } = {}) {
@@ -50,7 +50,7 @@ function recoveryController({ writeFails = false, tokens = "valid" }: { writeFai
  let saved = { version: 1, hostId: "urn:uuid:offline-recovery", activeId: "fixture", allowBackgroundUse: true, registrations: [registration] };
  let browserAttempts = 0, tokenRequests = 0; const listeners = new Set<() => void>();
  const service = createChatGPT({ store: { read: async () => structuredClone(saved), write: async (next: typeof saved) => { if (writeFails) throw Object.assign(new Error("fake-storage-failure"), { code: "storage" }); saved = structuredClone(next); } }, openExternal: () => { browserAttempts++; throw new Error("No real browser"); }, fetch: async (url: string) => { tokenRequests++; assert.equal(tokens, "expired"); assert.equal(url, "https://auth.openai.com/api/accounts/oauth/token"); return Response.json({ error: "invalid_grant" }, { status: 401 }); }, onChange: () => { for (const cb of listeners) cb(); } });
- window.lh = { expandWindow() {}, chatgpt: { status: () => chatGPTControl({ op: "status" }, service), consent: (enabled) => chatGPTControl({ op: "consent", enabled }, service), login: (id) => chatGPTControl({ op: "login", id }, service), cancel: () => chatGPTControl({ op: "cancel" }, service), select: (id) => chatGPTControl({ op: "select", id }, service), disconnect: (id) => chatGPTControl({ op: "disconnect", id }, service), logout: (id) => chatGPTControl({ op: "logout", id }, service), onChange: (cb) => { listeners.add(cb); return () => listeners.delete(cb); } } };
+ window.lh = { chatgpt: { status: () => chatGPTControl({ op: "status" }, service), consent: (enabled) => chatGPTControl({ op: "consent", enabled }, service), login: (id) => chatGPTControl({ op: "login", id }, service), cancel: () => chatGPTControl({ op: "cancel" }, service), select: (id) => chatGPTControl({ op: "select", id }, service), disconnect: (id) => chatGPTControl({ op: "disconnect", id }, service), logout: (id) => chatGPTControl({ op: "logout", id }, service), onChange: (cb) => { listeners.add(cb); return () => listeners.delete(cb); } } };
  return { service, get saved() { return saved; }, get browserAttempts() { return browserAttempts; }, get tokenRequests() { return tokenRequests; } };
 }
 async function mount(children: React.ReactNode = <ChatGPTConnection />) {
@@ -515,7 +515,7 @@ for (const holdSave of [false, true]) test(`real main/control bridge: immediate 
   const jwt = await new SignJWT({ nonce: authorize.searchParams.get("nonce"), email: "fixture@example.invalid" }).setProtectedHeader({ alg: "RS256", kid: "ui-fixture" }).setIssuer("https://auth.openai.com").setSubject("fixture-subject").setAudience(form.get("client_id")!).setIssuedAt().setExpirationTime("1h").sign(privateKey);
   return Response.json({ access_token: "fixture-access", refresh_token: "fixture-refresh", id_token: jwt, token_type: "Bearer", expires_in: 3600, scope: SCOPES.join(" ") });
  } });
- window.lh = { expandWindow() {}, chatgpt: { status: () => chatGPTControl({ op: "status" }, service), login: (id) => chatGPTControl({ op: "login", id }, service), cancel: () => chatGPTControl({ op: "cancel" }, service), select: (id) => chatGPTControl({ op: "select", id }, service), disconnect: (id) => chatGPTControl({ op: "disconnect", id }, service), logout: (id) => chatGPTControl({ op: "logout", id }, service), consent: (enabled) => {
+ window.lh = { chatgpt: { status: () => chatGPTControl({ op: "status" }, service), login: (id) => chatGPTControl({ op: "login", id }, service), cancel: () => chatGPTControl({ op: "cancel" }, service), select: (id) => chatGPTControl({ op: "select", id }, service), disconnect: (id) => chatGPTControl({ op: "disconnect", id }, service), logout: (id) => chatGPTControl({ op: "logout", id }, service), consent: (enabled) => {
   const reply = chatGPTControl({ op: "consent", enabled }, service);
   void reply.then(consentCompleted.resolve, consentCompleted.reject);
   return reply;
