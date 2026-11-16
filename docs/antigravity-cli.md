@@ -126,15 +126,22 @@ users who authenticate through Application Default Credentials.
 The CLI has no config-home override ([upstream issue #155](https://github.com/google-antigravity/antigravity-cli/issues/155)).
 agy may store its native login in the **OS keyring** when run locally, but that
 keyring lookup is tied to the real session and is not available inside the
-temporary turn home. LearnHarness therefore uses the CLI's **file-based token
+temporary turn home. LearnHarness therefore forces the CLI's **file-based token
 storage**: sign in with `agy` from an **SSH session** on the server machine so it
 writes `~/.gemini/antigravity-cli/antigravity-oauth-token`. The turn copies that
-file into the temporary home and syncs a refreshed token back on close. A local
-GUI/keyring-only login is not visible to the isolated turn and may remove the
-token file. If the file is absent and the CLI enters interactive OAuth, the
-adapter fails the turn as **not signed in** instead of waiting for a browser flow
-that cannot complete headlessly. The whole tree, including images, any copied
-token, and the token-bearing MCP configuration, is removed on close.
+file into the temporary home and syncs a refreshed token back on close.
+
+LearnHarness also keeps a server-owned copy at
+`~/.learnharness/agy-oauth-token` (mode `0600`). It is refreshed from the CLI
+file whenever that file exists and follows a token the turn refreshes. If a
+local GUI login migrates the CLI file to the macOS keyring and removes it, the
+next turn seeds from this backup and keeps working until the refresh token itself
+is revoked. The backup is not read by `agy`; only the per-turn temporary file is.
+If both the CLI file and the backup are absent or invalid and the CLI enters
+interactive OAuth, the adapter fails the turn as **not signed in** instead of
+waiting for a browser flow that cannot complete headlessly. The whole tree,
+including images, any copied token, and the token-bearing MCP configuration, is
+removed on close.
 
 Processes are spawned directly without a shell. Launch arguments use streaming
 JSON input/output, disable slash-command expansion, wait without the CLI's own
@@ -208,7 +215,7 @@ earlier measurements as usual.
 | Model absent or saved choice unavailable | Enable the opt-in, check discovery under the server's OS user/environment, and use **Check again**. Saved selections are not silently remapped. |
 | Not found / unchecked / update required | Repair or update the external executable, then use **Check again**. The probe has a five-second timeout and accepts a bounded version response; it does not install or authenticate anything. |
 | Meets minimum, but request fails | Verify native CLI authentication, routing, model access, and quota externally. Installation readiness does not test them. |
-| “Not signed in” / turn ends at interactive OAuth | Sign in with `agy` from an **SSH session** on the server machine under the server OS user, so the CLI writes `~/.gemini/antigravity-cli/antigravity-oauth-token`. A local GUI login may use the macOS keyring instead, which the isolated turn home cannot read and which may remove the file. The turn copies the file token and fails promptly if it is absent. |
+| “Not signed in” / turn ends at interactive OAuth | Sign in with `agy` from an **SSH session** on the server machine under the server OS user, so the CLI writes `~/.gemini/antigravity-cli/antigravity-oauth-token`. A local GUI login may use the macOS keyring instead, which the isolated turn home cannot read and which may remove the file. LearnHarness keeps a server-owned backup at `~/.learnharness/agy-oauth-token`, so removing only the CLI file does not break turns; if both are absent or the refresh token is revoked, sign in again over SSH. |
 | MCP identity/admission error | The installed CLI did not satisfy the bridge contract. No stdout-only tool fallback is available; investigate compatibility rather than bypassing admission. |
 | Native tool denied | Expected. Only harness MCP tools and the turn's own image files are allowed. |
 | Answer resumes with a new process | Expected after idle expiry, restart, or reuse-validation failure; history is replayed, not resumed from a CLI conversation file. |

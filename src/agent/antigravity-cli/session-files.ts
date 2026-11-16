@@ -12,16 +12,24 @@ const RULE_CHUNK_BYTES = 20_000;
 const AGY_MCP_SERVER_NAME = "learnharness";
 const HARNESS_MCP_PERMISSION = `mcp(${AGY_MCP_SERVER_NAME}/*)`;
 
-/** The one file agy uses for its native login. The CLI has no config-home
+/** The file agy uses for its native login. The CLI has no config-home
  *  override (upstream issue #155), so this is the only credential shared
  *  with the otherwise isolated turn home. */
 const CREDENTIAL_RELATIVE_PATH = [".gemini", "antigravity-cli", "antigravity-oauth-token"] as const;
+/** LearnHarness's own copy, outside the CLI-managed directory: a local GUI agy
+ *  login can migrate the CLI file to the macOS keyring and remove it, while
+ *  this copy remains available to the isolated server turns. */
+const CREDENTIAL_BACKUP_RELATIVE_PATH = [".learnharness", "agy-oauth-token"] as const;
 
 function credentialFile(home: string): string {
 	return join(home, ...CREDENTIAL_RELATIVE_PATH);
 }
 
-type SeededCredential = { source: string; original: Buffer };
+function credentialBackupFile(home: string): string {
+	return join(home, ...CREDENTIAL_BACKUP_RELATIVE_PATH);
+}
+
+type SeededCredential = { source: string; backup: string; original: Buffer };
 
 async function writePrivateFile(file: string, bytes: Buffer): Promise<void> {
 	await writeFile(file, bytes, { mode: PRIVATE_FILE_MODE });
@@ -39,41 +47,55 @@ async function writePrivateFileAtomic(file: string, bytes: Buffer): Promise<void
 	}
 }
 
-async function seedCredential(home: string, sourceHome: string | undefined): Promise<SeededCredential | undefined> {
-	if (!sourceHome) return undefined;
-	const source = credentialFile(sourceHome);
-	const info = await stat(source).catch((error: NodeJS.ErrnoException) => {
+async function readTokenFile(file: string): Promise<Buffer | undefined> {
+	const info = await stat(file).catch((error: NodeJS.ErrnoException) => {
 		if (error.code === "ENOENT") return undefined;
 		throw error;
 	});
 	if (!info?.isFile()) return undefined;
-	const original = await readFile(source);
+	return readFile(file);
+}
+
+async function writeBackup(file: string, bytes: Buffer): Promise<void> {
+	await mkdir(dirname(file), { recursive: true, mode: PRIVATE_DIR_MODE });
+	await writePrivateFileAtomic(file, bytes);
+}
+
+/** Seed the isolated home from the CLI's file token when present, otherwise
+ *  from LearnHarness's backup. The backup is refreshed from the CLI file on
+ *  every seed so a later SSH re-login supersedes an older server copy. */
+async function seedCredential(home: string, sourceHome: string | undefined): Promise<SeededCredential | undefined> {
+	if (!sourceHome) return undefined;
+	const source = credentialFile(sourceHome);
+	const backup = credentialBackupFile(sourceHome);
+	const sourceBytes = await readTokenFile(source);
+	const backupBytes = await readTokenFile(backup);
+	const original = sourceBytes ?? backupBytes;
+	if (!original) return undefined;
+	if (sourceBytes && !backupBytes?.equals(sourceBytes)) await writeBackup(backup, sourceBytes);
+
 	const target = credentialFile(home);
 	await mkdir(dirname(target), { recursive: true, mode: PRIVATE_DIR_MODE });
 	await writePrivateFile(target, original);
-	return { source, original };
+	return { source, backup, original };
 }
 
-/** Persist a token the CLI refreshed in the isolated home. The write-back is
- *  skipped if the real login changed while the turn ran — a concurrent
- *  re-login or another turn's refresh must never be clobbered. */
+/** Persist a token the CLI refreshed in the isolated home. The server-owned
+ *  backup always follows the refresh; the CLI's real file is updated only when
+ *  it is still the exact credential we seeded. If the real login changed (a
+ *  concurrent re-login or another turn's refresh), that newer file wins and the
+ *  backup follows it instead. */
 async function syncCredential(home: string, seeded: SeededCredential | undefined): Promise<void> {
 	if (!seeded) return;
-	let refreshed: Buffer;
-	try {
-		refreshed = await readFile(credentialFile(home));
-	} catch {
+	const refreshed = await readTokenFile(credentialFile(home));
+	if (!refreshed || refreshed.equals(seeded.original)) return;
+	const current = await readTokenFile(seeded.source);
+	if (current && !current.equals(seeded.original)) {
+		await writeBackup(seeded.backup, current);
 		return;
 	}
-	if (refreshed.equals(seeded.original)) return;
-	let current: Buffer;
-	try {
-		current = await readFile(seeded.source);
-	} catch {
-		return;
-	}
-	if (!current.equals(seeded.original)) return;
-	await writePrivateFileAtomic(seeded.source, refreshed);
+	await writeBackup(seeded.backup, refreshed);
+	if (current) await writePrivateFileAtomic(seeded.source, refreshed);
 }
 
 const TOOL_BRIDGE_RULE = `## LearnHarness tool bridge
@@ -319,8 +341,11 @@ export async function createAgyTurnFiles(input: {
 }
 
 /** The child environment is isolated from the user's CLI configuration.
- *  `createAgyTurnFiles` seeds only the native OAuth token file into that home;
- *  the keyring and any explicit ADC/proxy launch environment stay available. */
+ *  `createAgyTurnFiles` seeds the native token file (or the server backup) into
+ *  that home, and the explicit ADC/proxy launch environment stays available.
+ *  The CLI is forced onto its file-storage path because the isolated home cannot
+ *  read the real macOS keyring; otherwise a server launched outside SSH would
+ *  silently have no login. */
 export function agyChildEnv(base: NodeJS.ProcessEnv, files: AgyTurnFiles): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {
 		...base,
@@ -332,6 +357,11 @@ export function agyChildEnv(base: NodeJS.ProcessEnv, files: AgyTurnFiles): NodeJ
 		// Do not inherit tsx/Next loader flags from the server process.
 		NODE_OPTIONS: "",
 	};
+	// Force agy's file-based token storage even when the server itself was not
+	// launched from an SSH session. The isolated home carries the seeded file.
+	if (!env.SSH_CONNECTION) env.SSH_CONNECTION = "127.0.0.1 0 127.0.0.1 22";
+	if (!env.SSH_CLIENT) env.SSH_CLIENT = "127.0.0.1 0 22";
+	if (!env.SSH_TTY) env.SSH_TTY = "/dev/ttys000";
 	// Preserve Application Default Credentials when the CLI uses them.
 	if (!env.CLOUDSDK_CONFIG && base.HOME) {
 		const gcloud = join(base.HOME, ".config", "gcloud");
