@@ -77,7 +77,11 @@ for (const [name, surface] of Object.entries(surfaces)) describe(`streaming math
 		assert.equal(bold.querySelector("strong")?.textContent, "bold TAIL");
 		const link = documentFor(surface("[partial TAIL"));
 		assert.ok(link.body.textContent.includes("partial TAIL"));
-		assert.ok(link.body.textContent.includes("[blocked]"), "the incomplete-link placeholder is still hardened");
+		// Streamdown 2.7 renders an incomplete link as a non-navigable
+		// data-incomplete control; a completed unsafe URL still renders the
+		// [blocked] placeholder (pinned by the next test).
+		assert.equal(link.querySelectorAll("a").length, 0, "an incomplete link never becomes a live anchor");
+		assert.equal(link.querySelector('[data-incomplete="true"]')?.textContent, "partial TAIL");
 	});
 
 	it("still removes script/event attributes and blocks javascript links", () => {
