@@ -107,7 +107,13 @@ function createChat(t: TestContext): string {
 }
 
 function createAgentFactory(fakeRun: FakeRun): Parameters<typeof handleChatRequest>[1] {
-	const engine: PiEngine = { model: MODEL, streamFn: createAntigravityCliStreamFunction(fakeRun.runAgy) };
+	// Hermetic credential home: the harness tests never read the developer's
+	// real CLI login. The credential path itself is covered by the stream and
+	// session-file tests.
+	const engine: PiEngine = {
+		model: MODEL,
+		streamFn: createAntigravityCliStreamFunction(fakeRun.runAgy, { credentialHome: join(testData, "agy-credentials") }),
+	};
 	return (options) => createTeacherAgent(undefined, { engine, chatId: options.chatId, messages: options.messages });
 }
 

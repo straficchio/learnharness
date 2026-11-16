@@ -1,12 +1,80 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { AgyImage } from "./transcript.ts";
 
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIR_MODE = 0o700;
 const RULE_CHUNK_BYTES = 20_000;
+/** The MCP server name in the isolated config and its agy permission grant. */
+const AGY_MCP_SERVER_NAME = "learnharness";
+const HARNESS_MCP_PERMISSION = `mcp(${AGY_MCP_SERVER_NAME}/*)`;
+
+/** The one file agy uses for its native login. The CLI has no config-home
+ *  override (upstream issue #155), so this is the only credential shared
+ *  with the otherwise isolated turn home. */
+const CREDENTIAL_RELATIVE_PATH = [".gemini", "antigravity-cli", "antigravity-oauth-token"] as const;
+
+function credentialFile(home: string): string {
+	return join(home, ...CREDENTIAL_RELATIVE_PATH);
+}
+
+type SeededCredential = { source: string; original: Buffer };
+
+async function writePrivateFile(file: string, bytes: Buffer): Promise<void> {
+	await writeFile(file, bytes, { mode: PRIVATE_FILE_MODE });
+	// umask may relax the create mode; the final path must stay 0600.
+	await chmod(file, PRIVATE_FILE_MODE);
+}
+
+async function writePrivateFileAtomic(file: string, bytes: Buffer): Promise<void> {
+	const temporary = join(dirname(file), `.${basename(file)}.${randomBytes(8).toString("hex")}.tmp`);
+	try {
+		await writePrivateFile(temporary, bytes);
+		await rename(temporary, file);
+	} finally {
+		await rm(temporary, { force: true });
+	}
+}
+
+async function seedCredential(home: string, sourceHome: string | undefined): Promise<SeededCredential | undefined> {
+	if (!sourceHome) return undefined;
+	const source = credentialFile(sourceHome);
+	const info = await stat(source).catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") return undefined;
+		throw error;
+	});
+	if (!info?.isFile()) return undefined;
+	const original = await readFile(source);
+	const target = credentialFile(home);
+	await mkdir(dirname(target), { recursive: true, mode: PRIVATE_DIR_MODE });
+	await writePrivateFile(target, original);
+	return { source, original };
+}
+
+/** Persist a token the CLI refreshed in the isolated home. The write-back is
+ *  skipped if the real login changed while the turn ran — a concurrent
+ *  re-login or another turn's refresh must never be clobbered. */
+async function syncCredential(home: string, seeded: SeededCredential | undefined): Promise<void> {
+	if (!seeded) return;
+	let refreshed: Buffer;
+	try {
+		refreshed = await readFile(credentialFile(home));
+	} catch {
+		return;
+	}
+	if (refreshed.equals(seeded.original)) return;
+	let current: Buffer;
+	try {
+		current = await readFile(seeded.source);
+	} catch {
+		return;
+	}
+	if (!current.equals(seeded.original)) return;
+	await writePrivateFileAtomic(seeded.source, refreshed);
+}
 
 const TOOL_BRIDGE_RULE = `## LearnHarness tool bridge
 
@@ -146,22 +214,29 @@ export async function createAgyTurnFiles(input: {
 	systemPrompt: string;
 	mcp: AgyMcpConfig;
 	images: AgyImage[];
+	/** The server user's real home. Only `agy`'s OAuth token file is shared
+	 *  from it; every other file stays in the isolated turn home. */
+	credentialHome?: string;
 }): Promise<AgyTurnFiles> {
 	const home = await mkdtemp(join(tmpdir(), "agy-home-"));
 	let cwd: string | undefined;
+	let seededCredential: SeededCredential | undefined;
 	try {
 		cwd = await mkdtemp(join(tmpdir(), "agy-cwd-"));
+		seededCredential = await seedCredential(home, input.credentialHome);
 		const privateDir = join(home, "private");
 		const imageDir = join(privateDir, "images");
 		const appDataDir = join(home, "appdata");
 		const configDir = join(home, ".gemini", "config");
 		const rulesDir = join(configDir, "rules");
+		const cliDir = join(home, ".gemini", "antigravity-cli");
 
 		await Promise.all([
 			mkdir(privateDir, { recursive: true, mode: PRIVATE_DIR_MODE }),
 			mkdir(imageDir, { recursive: true, mode: PRIVATE_DIR_MODE }),
 			mkdir(appDataDir, { recursive: true, mode: PRIVATE_DIR_MODE }),
 			mkdir(rulesDir, { recursive: true, mode: PRIVATE_DIR_MODE }),
+			mkdir(cliDir, { recursive: true, mode: PRIVATE_DIR_MODE }),
 		]);
 
 		const imagePaths: string[] = [];
@@ -177,7 +252,7 @@ export async function createAgyTurnFiles(input: {
 		await Promise.all([
 			writeFile(join(configDir, "mcp_config.json"), JSON.stringify({
 				mcpServers: {
-					learnharness: {
+					[AGY_MCP_SERVER_NAME]: {
 						type: "http",
 						url: input.mcp.url,
 						headers: input.mcp.headers,
@@ -197,6 +272,12 @@ export async function createAgyTurnFiles(input: {
 					}],
 				},
 			}), { mode: PRIVATE_FILE_MODE }),
+			// agy's default MCP policy is Ask, which headless print mode treats
+			// as a denial. Allow the harness namespace; the PreToolUse hook above
+			// remains the independent gate for every native CLI tool.
+			writePrivateFile(join(cliDir, "settings.json"), Buffer.from(`${JSON.stringify({
+				permissions: { allow: [HARNESS_MCP_PERMISSION] },
+			}, null, "\t")}\n`)),
 		]);
 
 		const chunks = splitPrompt(input.systemPrompt);
@@ -219,6 +300,9 @@ export async function createAgyTurnFiles(input: {
 			logFile,
 			imagePaths,
 			cleanup: async () => {
+				await syncCredential(home, seededCredential).catch((error: unknown) => {
+					console.warn("agy credential sync failed:", error);
+				});
 				await Promise.all([
 					rm(home, { recursive: true, force: true }),
 					rm(cwd!, { recursive: true, force: true }),
@@ -234,8 +318,9 @@ export async function createAgyTurnFiles(input: {
 	}
 }
 
-/** The child environment is isolated from the user's CLI configuration but
- * keeps the native keyring and any explicit ADC/proxy launch environment. */
+/** The child environment is isolated from the user's CLI configuration.
+ *  `createAgyTurnFiles` seeds only the native OAuth token file into that home;
+ *  the keyring and any explicit ADC/proxy launch environment stay available. */
 export function agyChildEnv(base: NodeJS.ProcessEnv, files: AgyTurnFiles): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {
 		...base,
@@ -247,8 +332,7 @@ export function agyChildEnv(base: NodeJS.ProcessEnv, files: AgyTurnFiles): NodeJ
 		// Do not inherit tsx/Next loader flags from the server process.
 		NODE_OPTIONS: "",
 	};
-	// Preserve Application Default Credentials when the CLI uses them; the
-	// keyring path needs no HOME override at all.
+	// Preserve Application Default Credentials when the CLI uses them.
 	if (!env.CLOUDSDK_CONFIG && base.HOME) {
 		const gcloud = join(base.HOME, ".config", "gcloud");
 		env.CLOUDSDK_CONFIG = gcloud;

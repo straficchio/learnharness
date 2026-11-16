@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import test, { type TestContext } from "node:test";
+import test, { after, type TestContext } from "node:test";
 
 import type {
 	AssistantMessage,
@@ -29,6 +29,9 @@ const FAKE_AGY = fileURLToPath(new URL("./fixtures/antigravity-cli/fake-agy.mjs"
 const CLEANUP_TIMEOUT_MS = 3000;
 const SESSION_ID = "agy-stream-test";
 const PROGRESS_TOKEN = "00000000-0000-4000-8000-000000000001:2";
+/** Hermetic default: never copy the developer's real CLI token in tests. */
+const TEST_CREDENTIAL_HOME = mkdtempSync(join(tmpdir(), "agy-stream-credentials-"));
+after(() => rmSync(TEST_CREDENTIAL_HOME, { recursive: true, force: true }));
 
 const MODEL = toAgyModel({ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", efforts: ["low", "medium", "high"] });
 const READ_TOOL: Tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: {} } };
@@ -103,13 +106,18 @@ function getText(message: AssistantMessage): string {
 	return message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 }
 
-const streamFunctions = new WeakMap<RunAgy, StreamFunction<Api, SimpleStreamOptions>>();
+const streamFunctions = new WeakMap<RunAgy, Map<string, StreamFunction<Api, SimpleStreamOptions>>>();
 
-function streamFor(runAgy: RunAgy): StreamFunction<Api, SimpleStreamOptions> {
-	let streamFn = streamFunctions.get(runAgy);
+function streamFor(runAgy: RunAgy, credentialHome = TEST_CREDENTIAL_HOME): StreamFunction<Api, SimpleStreamOptions> {
+	let byCredentialHome = streamFunctions.get(runAgy);
+	if (!byCredentialHome) {
+		byCredentialHome = new Map();
+		streamFunctions.set(runAgy, byCredentialHome);
+	}
+	let streamFn = byCredentialHome.get(credentialHome);
 	if (!streamFn) {
-		streamFn = createAntigravityCliStreamFunction(runAgy);
-		streamFunctions.set(runAgy, streamFn);
+		streamFn = createAntigravityCliStreamFunction(runAgy, { credentialHome });
+		byCredentialHome.set(credentialHome, streamFn);
 	}
 	return streamFn;
 }
@@ -195,6 +203,10 @@ test("text scenario streams agent-response deltas and per-step usage, not the cu
 	assert.equal(typeof mcpConfig.mcpServers.learnharness.headers.Authorization, "string");
 	assert.equal(statSync(join(calls[0]!.env.HOME!, ".gemini", "config", "mcp_config.json")).mode & 0o777, 0o600);
 	assert.equal(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "hooks.json"), "utf8").includes("PreToolUse"), true);
+	const cliSettingsFile = join(calls[0]!.env.HOME!, ".gemini", "antigravity-cli", "settings.json");
+	const cliSettings = JSON.parse(readFileSync(cliSettingsFile, "utf8"));
+	assert.deepEqual(cliSettings.permissions.allow, ["mcp(learnharness/*)"]);
+	assert.equal(statSync(cliSettingsFile).mode & 0o777, 0o600);
 	const rulesDir = join(calls[0]!.env.HOME!, ".gemini", "config", "rules");
 	const preamble = readFileSync(join(rulesDir, "00-tool-bridge.md"), "utf8");
 	assert.match(preamble, /trigger: always_on/);
@@ -205,6 +217,34 @@ test("text scenario streams agent-response deltas and per-step usage, not the cu
 	assert.match(rules, /You are a tutor\./);
 	const gate = readFileSync(join(calls[0]!.env.HOME!, "private", "gate.mjs"), "utf8");
 	assert.match(gate, /mcp_learnharness_<name>/);
+});
+
+test("seeds the real CLI OAuth token into the isolated turn home", async (t) => {
+	const source = mkdtempSync(join(tmpdir(), "agy-token-source-"));
+	t.after(() => rmSync(source, { recursive: true, force: true }));
+	const sourceToken = join(source, ".gemini", "antigravity-cli", "antigravity-oauth-token");
+	mkdirSync(dirname(sourceToken), { recursive: true });
+	writeFileSync(sourceToken, "fixture-token", { mode: 0o600 });
+
+	const { runAgy: fakeRun } = createFakeRun(t, [
+		JSON.stringify({ fake: "text", stepIndex: 1, text: "ok" }),
+		JSON.stringify({ fake: "result", status: "SUCCESS", response: "ok" }),
+	]);
+	let isolatedToken: string | undefined;
+	let isolatedMode: number | undefined;
+	const runAgy: RunAgy = (args, options) => {
+		const token = join(options.env.HOME!, ".gemini", "antigravity-cli", "antigravity-oauth-token");
+		isolatedToken = readFileSync(token, "utf8");
+		isolatedMode = statSync(token).mode & 0o777;
+		return fakeRun(args, options);
+	};
+
+	const context = normalizeContext({ systemPrompt: "You are a tutor.", messages: [HI], tools: [READ_TOOL] });
+	const events = await collectEvents(streamFor(runAgy, source)(MODEL, context, { sessionId: SESSION_ID, reasoning: "medium" }));
+	assert.equal(getDone(events).reason, "stop");
+	assert.equal(isolatedToken, "fixture-token");
+	assert.equal(isolatedMode, 0o600);
+	assert.equal(readFileSync(sourceToken, "utf8"), "fixture-token", "the real token is not consumed by the turn");
 });
 
 test("a held MCP tool call returns control to Pi and the same process continues with its result", async (t) => {
@@ -413,6 +453,15 @@ test("authentication failures map to the not-signed-in message", async (t) => {
 	]);
 	const events = await runTurn(runAgy, [HI]);
 	assert.equal(getError(events).error.errorMessage, "not signed in");
+});
+
+test("interactive OAuth is failed fast as not signed in instead of hanging", async (t) => {
+	const { runAgy, calls } = createFakeRun(t, [
+		JSON.stringify({ fake: "oauth" }),
+	]);
+	const events = await runTurn(runAgy, [HI]);
+	assert.equal(getError(events).error.errorMessage, "not signed in");
+	await waitForExit(calls[0]!.child);
 });
 
 test("an authentication stderr on process exit maps to the not-signed-in message", async (t) => {

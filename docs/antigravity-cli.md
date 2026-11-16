@@ -84,7 +84,11 @@ bearer token. Every tool is marked `_meta["antigravity/alwaysLoad"] = true`, so
 the CLI offers it directly as `mcp_learnharness_…` instead of requiring a
 schema-file read or a generic `call_mcp_tool` step. The bridge configuration
 also sets `timeoutSeconds: 1800`, so the CLI's shorter default per-call MCP
-ceiling cannot cut off a learner question.
+ceiling cannot cut off a learner question. The isolated CLI settings grant
+`mcp(learnharness/*)`; agy's default MCP policy is **Ask**, which headless print
+mode treats as a denial, so without this rule the harness tools are refused
+before the bridge sees them. The grant covers only the harness server, and the
+`PreToolUse` hook below remains the independent gate for native CLI tools.
 
 **Streamed tool intent alone never authorizes execution.** An authenticated MCP
 request must carry a unique `_meta.progressToken` shaped
@@ -118,8 +122,18 @@ data directory, an empty temporary working directory, and a log file inside the
 same private tree. The user's real `~/.gemini` rules, plugins, MCP servers,
 settings, onboarding state, conversation history, and logs are not used or
 modified. `CLOUDSDK_CONFIG`/`GOOGLE_APPLICATION_CREDENTIALS` are preserved for
-users who authenticate through Application Default Credentials. The whole tree,
-including images and the token-bearing MCP configuration, is removed on close.
+users who authenticate through Application Default Credentials.
+
+The CLI has no config-home override ([upstream issue #155](https://github.com/google-antigravity/antigravity-cli/issues/155)),
+and this version stores its native OAuth login in
+`~/.gemini/antigravity-cli/antigravity-oauth-token` (a file, not the OS keyring).
+The turn therefore copies **only that file** into its temporary home and syncs a
+refreshed token back on close, so the user's existing `agy` login works without
+exposing their rules, plugins, MCP servers, history, or logs. If the file is
+absent and the CLI enters interactive OAuth, the adapter fails the turn as
+**not signed in** instead of waiting for a browser flow that cannot complete
+headlessly. The whole tree, including images, the copied token, and the
+token-bearing MCP configuration, is removed on close.
 
 Processes are spawned directly without a shell. Launch arguments use streaming
 JSON input/output, disable slash-command expansion, wait without the CLI's own
@@ -193,6 +207,7 @@ earlier measurements as usual.
 | Model absent or saved choice unavailable | Enable the opt-in, check discovery under the server's OS user/environment, and use **Check again**. Saved selections are not silently remapped. |
 | Not found / unchecked / update required | Repair or update the external executable, then use **Check again**. The probe has a five-second timeout and accepts a bounded version response; it does not install or authenticate anything. |
 | Meets minimum, but request fails | Verify native CLI authentication, routing, model access, and quota externally. Installation readiness does not test them. |
+| “Not signed in” / turn ends at interactive OAuth | Sign in with `agy` in a terminal on the server machine under the server OS user. Each turn copies `~/.gemini/antigravity-cli/antigravity-oauth-token` into its isolated home; if the file is absent, the adapter detects the CLI's interactive-OAuth log line and fails the turn promptly instead of hanging. |
 | MCP identity/admission error | The installed CLI did not satisfy the bridge contract. No stdout-only tool fallback is available; investigate compatibility rather than bypassing admission. |
 | Native tool denied | Expected. Only harness MCP tools and the turn's own image files are allowed. |
 | Answer resumes with a new process | Expected after idle expiry, restart, or reuse-validation failure; history is replayed, not resumed from a CLI conversation file. |
@@ -210,5 +225,6 @@ quality, or provider approval.
 | Settings controls and status HTTP boundary | [UI](../components/settings/antigravity-cli-status.tsx), [HTTP handler](../src/server/antigravity-cli.ts), [UI tests](../tests/antigravity-cli-status-ui.test.tsx), [HTTP tests](../tests/antigravity-cli-status-http.test.ts) |
 | MCP transport and progress-token admission | [bridge](../src/agent/antigravity-cli/tool-bridge.ts), [bridge tests](../tests/antigravity-cli-tool-bridge.test.ts), [stream tests](../tests/antigravity-cli-stream.test.ts) |
 | Launch isolation, native gate, images, reuse, abort, cleanup | [stream](../src/agent/antigravity-cli/stream.ts), [session files](../src/agent/antigravity-cli/session-files.ts), [reuse comparison](../src/agent/antigravity-cli/reuse-context.ts), [live-process registry](../src/agent/antigravity-cli/live-processes.ts), [stream tests](../tests/antigravity-cli-stream.test.ts) |
+| Credential pass-through | [session files](../src/agent/antigravity-cli/session-files.ts), [credential tests](../tests/antigravity-cli-credentials.test.ts) |
 | Replay and learner-question lifecycle | [transcript](../src/agent/antigravity-cli/transcript.ts), [transcript tests](../tests/antigravity-cli-transcript.test.ts), [harness tests](../tests/antigravity-cli-harness.test.ts) |
 | Model discovery and pricing labels | [discovery](../src/agent/antigravity-cli/model-discovery.ts), [catalog](../src/server/model-catalog.ts), [discovery tests](../tests/antigravity-cli-model-discovery.test.ts), [pricing parity tests](../tests/pricing-native-parity.test.ts) |

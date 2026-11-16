@@ -7,6 +7,8 @@ LearnHarness has two deployment modes:
 
 The service is meant for a **trusted LAN with trusted users**. It is not hardened for Internet exposure: there is no TLS, rate limiting, or account lockout. App-data paths are denied to the learner file tools, but the server's other files remain readable to agents.
 
+Because the default is plain HTTP on a LAN address, client code must not rely on secure-context-only browser APIs. For example, `crypto.randomUUID` is `undefined` at `http://<LAN-IP>:3000`; use `crypto.getRandomValues` or a fallback for client-side identifiers. A secure-context API throwing in a send path can abort the request before `/api/chat`, leaving the UI at “Thinking…”.
+
 ## Quick start
 
 ```bash

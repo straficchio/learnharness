@@ -170,9 +170,30 @@ export function failedOutputCallIds(messages: readonly LhMessage[]): ReadonlySet
 
 // ─── id minting ──────────────────────────────────────────────────────────────
 
+/** `crypto.randomUUID` is secure-context-only; the app intentionally runs on
+ *  trusted-LAN HTTP, where it is absent. `getRandomValues` is available in
+ *  every browser context, so use it for the same opaque 8-character suffix. */
+function randomIdSuffix(length = 8): string {
+	const source = globalThis.crypto;
+	if (source && typeof source.randomUUID === "function") {
+		try { return source.randomUUID().replace(/-/g, "").slice(0, length); }
+		catch { /* fall through to getRandomValues */ }
+	}
+	if (source && typeof source.getRandomValues === "function") {
+		const bytes = new Uint8Array(Math.ceil(length / 2));
+		source.getRandomValues(bytes);
+		let value = "";
+		for (const byte of bytes) value += byte.toString(16).padStart(2, "0");
+		return value.slice(0, length);
+	}
+	let value = "";
+	while (value.length < length) value += Math.random().toString(36).slice(2) || "0";
+	return value.slice(0, length);
+}
+
 /** The app-wide message id shape (same as the UIMessage-era mint). */
 export function newMessageId(): string {
-	return `msg_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+	return `msg_${Date.now().toString(36)}_${randomIdSuffix()}`;
 }
 
 // ─── constructors (the input-event → native append mapping lives in
@@ -244,7 +265,7 @@ export function newPlanBlockMessage(
 	block: unknown,
 ): LhMarkerMessage {
 	return {
-		id: `pb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		id: `pb_${Date.now().toString(36)}_${randomIdSuffix()}`,
 		role: "custom",
 		customType: "plan-block",
 		content: "",

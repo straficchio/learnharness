@@ -1,4 +1,6 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { isDeepStrictEqual } from "node:util";
@@ -37,6 +39,10 @@ export type RunAgy = (args: string[], options: RunAgyOptions) => AgyChild | Prom
 
 const ABORT_MESSAGE = "Request was aborted";
 const START_FAILED_MESSAGE = "agy CLI failed to start";
+/** The CLI writes this to its private log when silent auth failed and it is
+ *  waiting for an interactive browser flow, which cannot finish headlessly. */
+const INTERACTIVE_OAUTH_MARKER = "Print mode: triggering interactive OAuth";
+const AUTH_WATCH_INTERVAL_MS = 500;
 
 type AgyArgsInput = {
 	modelId: string;
@@ -288,6 +294,8 @@ class AgyProcess implements LiveProcess {
 	private closed = false;
 	private stopping = false;
 	private killTimer: NodeJS.Timeout | undefined;
+	private authWatch: NodeJS.Timeout | undefined;
+	private authWatchBusy = false;
 	private signal: AbortSignal | undefined;
 	private readonly intents = new Map<number, AgyToolIntent>();
 	private readonly tracedCalls = new Set<AgyPendingToolCall>();
@@ -323,6 +331,7 @@ class AgyProcess implements LiveProcess {
 			try { this.handleLine(line); }
 			catch { this.fail("agy CLI emitted malformed stream output"); }
 		});
+		this.startAuthWatch();
 		this.setSignal(signal);
 		if (this.stopping) return;
 		this.child.stdin.write(`${stdinLine}\n`);
@@ -358,11 +367,38 @@ class AgyProcess implements LiveProcess {
 
 	kill(): void {
 		removeLiveProcess(this);
+		this.stopAuthWatch();
 		if (this.stopping || this.closed) return;
 		this.stopping = true;
 		this.child.kill();
 		this.killTimer = setTimeout(() => this.child.kill("SIGKILL"), 1000);
 		this.killTimer.unref();
+	}
+
+	private startAuthWatch(): void {
+		this.authWatch = setInterval(() => {
+			if (this.stopping || this.closed || this.turn.isFinished) {
+				this.stopAuthWatch();
+				return;
+			}
+			if (this.authWatchBusy) return;
+			this.authWatchBusy = true;
+			void readFile(this.files.logFile, "utf8")
+				.then((log) => {
+					if (!this.stopping && !this.closed && log.includes(INTERACTIVE_OAUTH_MARKER)) {
+						this.fail(AntigravityCliError.NotSignedIn);
+					}
+				})
+				.catch(() => { /* the log file may not exist yet */ })
+				.finally(() => { this.authWatchBusy = false; });
+		}, AUTH_WATCH_INTERVAL_MS);
+		this.authWatch.unref();
+	}
+
+	private stopAuthWatch(): void {
+		if (this.authWatch === undefined) return;
+		clearInterval(this.authWatch);
+		this.authWatch = undefined;
 	}
 
 	fail(message: string): void {
@@ -461,6 +497,9 @@ class AgyProcess implements LiveProcess {
 		traceCliEvent(this.sessionId, line);
 		const event = parseAgyLine(line);
 		if (!event) return;
+		// Model activity proves authentication succeeded; only the startup
+		// window needs the OAuth watch.
+		if (event.type === "agentResponse" || event.type === "tool" || event.type === "result") this.stopAuthWatch();
 
 		if (event.type === "init") return;
 
@@ -554,6 +593,7 @@ class AgyProcess implements LiveProcess {
 	private handleClose(message: string): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.stopAuthWatch();
 		clearTimeout(this.killTimer);
 		removeLiveProcess(this);
 		if (this.pendingError) addLiveProcess(this);
@@ -610,6 +650,7 @@ async function startProcess(
 	owner: symbol,
 	configuration: unknown,
 	env: NodeJS.ProcessEnv,
+	credentialHome: string | undefined,
 ): Promise<void> {
 	if (options?.signal?.aborted) { turn.fail(ABORT_MESSAGE, "aborted"); return; }
 	const input = toAgyInput(context.messages);
@@ -624,7 +665,7 @@ async function startProcess(
 	});
 	let files: AgyTurnFiles;
 	try {
-		files = await createAgyTurnFiles({ systemPrompt: input.systemPrompt, mcp: bridge.mcp, images: input.images });
+		files = await createAgyTurnFiles({ systemPrompt: input.systemPrompt, mcp: bridge.mcp, images: input.images, credentialHome });
 	} catch (error) {
 		await bridge.close();
 		throw error;
@@ -668,7 +709,10 @@ async function startProcess(
 	cliProcess.start(toAgyStreamJsonLine(content), options?.signal);
 }
 
-export function createAntigravityCliStreamFunction(runAgy: RunAgy): StreamFunction<Api, SimpleStreamOptions> {
+export function createAntigravityCliStreamFunction(
+	runAgy: RunAgy,
+	seams: { credentialHome?: string } = {},
+): StreamFunction<Api, SimpleStreamOptions> {
 	const owner = Symbol("antigravity-cli stream owner");
 	return (model, context, options) => {
 		const stream = createAssistantMessageEventStream();
@@ -676,11 +720,14 @@ export function createAntigravityCliStreamFunction(runAgy: RunAgy): StreamFuncti
 
 		const effort = toAgyEffort(model, options?.reasoning);
 		const env = toAgyEnv();
+		const credentialHome = seams.credentialHome ?? (process.platform === "win32"
+			? env.USERPROFILE ?? env.HOME
+			: env.HOME ?? env.USERPROFILE) ?? homedir();
 		// An existing child must not retain stale authentication/routing after env changes.
 		const configuration = { request: configurationForReuse(model, context, effort), env };
 		if (continueLiveProcess(turn, owner, options?.sessionId, configuration, context.messages, options?.signal)) return stream;
 
-		startProcess(runAgy, turn, model, effort, context, options, owner, configuration, env).catch((error: unknown) => {
+		startProcess(runAgy, turn, model, effort, context, options, owner, configuration, env, credentialHome).catch((error: unknown) => {
 			console.error("agy CLI turn failed:", error);
 			turn.fail(options?.signal?.aborted ? ABORT_MESSAGE : error instanceof AgyLaunchError ? error.message : START_FAILED_MESSAGE, options?.signal?.aborted ? "aborted" : "error");
 		});

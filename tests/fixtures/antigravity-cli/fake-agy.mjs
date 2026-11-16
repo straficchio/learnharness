@@ -8,6 +8,7 @@
  *   {"fake":"native","stepIndex":3,"name":"run_command","arguments":{...},"state":"ERROR","message":"..."}
  *       emit a native tool transition (ACTIVE, then the requested state)
  *   {"fake":"hold"}                           stay alive until killed
+ *   {"fake":"oauth"}                          write the interactive-OAuth log marker and stay alive
  *   {"fake":"exit","code":1,"stderr":"..."}   write stderr and exit
  *   {"fake":"ignore-term"}                    ignore SIGTERM to exercise kill escalation
  *   {"fake":"text","stepIndex":4,"text":"..."} emit an agent_response ACTIVE/DONE pair
@@ -23,6 +24,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const CONVERSATION_ID = "00000000-0000-4000-8000-000000000001";
+const logFileIndex = process.argv.indexOf("--log-file");
+const logFile = logFileIndex >= 0 ? process.argv[logFileIndex + 1] : undefined;
 
 function expand(value) {
 	return JSON.parse(JSON.stringify(value), (_key, item) => typeof item === "string"
@@ -81,6 +84,11 @@ for (const raw of lines) {
 	const directive = expand(JSON.parse(raw));
 
 	if (directive.fake === "hold") {
+		setInterval(() => {}, 60_000);
+		break;
+	}
+	if (directive.fake === "oauth") {
+		if (logFile) writeFileSync(logFile, "Print mode: triggering interactive OAuth\n");
 		setInterval(() => {}, 60_000);
 		break;
 	}
