@@ -327,9 +327,8 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-// Type-only version skew: @streamdown/code bundles shiki@3 types while
-// streamdown@2.5 expects shiki@4 types. Both work at runtime (each ships its
-// own highlighter); the cast papers over the .d.ts mismatch.
+// @streamdown/code 2 and streamdown 2.7 share shiki 4 types, so the plugin
+// map is checked with `satisfies PluginConfig` instead of being cast.
 //
 // Standard dollar authoring (owner, 2026-10-12): $...$ inline, $$ fenced
 // on separate lines for display. transformMathDelimiters stays as the
@@ -353,7 +352,7 @@ export const streamdownPlugins = {
   },
   code,
   math: createMathPlugin({ singleDollarTextMath: true }),
-} as unknown as PluginConfig;
+} satisfies PluginConfig;
 
 // Remend's incomplete-HTML heuristic mistakes `<b` in `$a<b$` for a
 // partial tag and deletes the remaining source before math can tokenize.
