@@ -111,8 +111,7 @@ so the hook and the adapter are independent checks.
 
 [Environment provenance](../src/core/auth-env.ts) removes credentials reflected
 into `process.env` **only by LearnHarness's key store** before launching the CLI
-or its version probe. The original launch environment and the user's OS keyring
-remain available, so native CLI authentication/routing still applies.
+or its version probe. The original launch environment remains available.
 LearnHarness neither copies its saved API keys into this provider nor enforces a
 subscription-only account. Prompts, relevant history, images, and tool results
 go through the CLI's configured service.
@@ -124,16 +123,18 @@ settings, onboarding state, conversation history, and logs are not used or
 modified. `CLOUDSDK_CONFIG`/`GOOGLE_APPLICATION_CREDENTIALS` are preserved for
 users who authenticate through Application Default Credentials.
 
-The CLI has no config-home override ([upstream issue #155](https://github.com/google-antigravity/antigravity-cli/issues/155)),
-and this version stores its native OAuth login in
-`~/.gemini/antigravity-cli/antigravity-oauth-token` (a file, not the OS keyring).
-The turn therefore copies **only that file** into its temporary home and syncs a
-refreshed token back on close, so the user's existing `agy` login works without
-exposing their rules, plugins, MCP servers, history, or logs. If the file is
-absent and the CLI enters interactive OAuth, the adapter fails the turn as
-**not signed in** instead of waiting for a browser flow that cannot complete
-headlessly. The whole tree, including images, the copied token, and the
-token-bearing MCP configuration, is removed on close.
+The CLI has no config-home override ([upstream issue #155](https://github.com/google-antigravity/antigravity-cli/issues/155)).
+agy may store its native login in the **OS keyring** when run locally, but that
+keyring lookup is tied to the real session and is not available inside the
+temporary turn home. LearnHarness therefore uses the CLI's **file-based token
+storage**: sign in with `agy` from an **SSH session** on the server machine so it
+writes `~/.gemini/antigravity-cli/antigravity-oauth-token`. The turn copies that
+file into the temporary home and syncs a refreshed token back on close. A local
+GUI/keyring-only login is not visible to the isolated turn and may remove the
+token file. If the file is absent and the CLI enters interactive OAuth, the
+adapter fails the turn as **not signed in** instead of waiting for a browser flow
+that cannot complete headlessly. The whole tree, including images, any copied
+token, and the token-bearing MCP configuration, is removed on close.
 
 Processes are spawned directly without a shell. Launch arguments use streaming
 JSON input/output, disable slash-command expansion, wait without the CLI's own
@@ -207,7 +208,7 @@ earlier measurements as usual.
 | Model absent or saved choice unavailable | Enable the opt-in, check discovery under the server's OS user/environment, and use **Check again**. Saved selections are not silently remapped. |
 | Not found / unchecked / update required | Repair or update the external executable, then use **Check again**. The probe has a five-second timeout and accepts a bounded version response; it does not install or authenticate anything. |
 | Meets minimum, but request fails | Verify native CLI authentication, routing, model access, and quota externally. Installation readiness does not test them. |
-| “Not signed in” / turn ends at interactive OAuth | Sign in with `agy` in a terminal on the server machine under the server OS user. Each turn copies `~/.gemini/antigravity-cli/antigravity-oauth-token` into its isolated home; if the file is absent, the adapter detects the CLI's interactive-OAuth log line and fails the turn promptly instead of hanging. |
+| “Not signed in” / turn ends at interactive OAuth | Sign in with `agy` from an **SSH session** on the server machine under the server OS user, so the CLI writes `~/.gemini/antigravity-cli/antigravity-oauth-token`. A local GUI login may use the macOS keyring instead, which the isolated turn home cannot read and which may remove the file. The turn copies the file token and fails promptly if it is absent. |
 | MCP identity/admission error | The installed CLI did not satisfy the bridge contract. No stdout-only tool fallback is available; investigate compatibility rather than bypassing admission. |
 | Native tool denied | Expected. Only harness MCP tools and the turn's own image files are allowed. |
 | Answer resumes with a new process | Expected after idle expiry, restart, or reuse-validation failure; history is replayed, not resumed from a CLI conversation file. |
