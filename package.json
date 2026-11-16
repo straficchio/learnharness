@@ -11,6 +11,9 @@
 	"description": "An agent harness for learning: adaptive teaching, practice, and a persistent knowledge graph.",
 	"type": "module",
 	"private": true,
+	"engines": {
+		"node": ">=22.19.0"
+	},
 	"main": "electron/main.cjs",
 	"scripts": {
 		"dev": "next dev -H 127.0.0.1",
@@ -27,8 +30,8 @@
 		"desktop:dist": "rm -rf dist .next/standalone && CI=1 next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=LH_NOTARY APPLE_TEAM_ID=JS6XN22HY6 electron-builder --mac --arm64"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "1.4.0",
-		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-agent-core": "1.5.2",
+		"@earendil-works/pi-ai": "1.5.2",
 		"@modelcontextprotocol/sdk": "1.32.2",
 		"@mozilla/readability": "^0.6.0",
 		"@radix-ui/react-use-controllable-state": "^1.2.6",

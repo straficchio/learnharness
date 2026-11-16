@@ -3,7 +3,7 @@ import { after, test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Type, createProvider, createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, normalizeContext, type CacheRetention, type SimpleStreamOptions, type StreamFunction } from "@earendil-works/pi-ai";
+import { createProvider, createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, normalizeContext, type CacheRetention, type SimpleStreamOptions, type StreamFunction } from "@earendil-works/pi-ai";
 import { CACHE_RETENTIONS, sanitizeUserSettings, ROLE_SLOT, type UserSettings } from "../src/core/settings.ts";
 import { resolveSettings, resolveConversationSpec, resolveRoleSpec } from "../src/core/settings-resolution.ts";
 import { parseModelsSettingsBody, parseAgentSettingsBody, parseSettingsBody } from "../src/server/settings-body.ts";
@@ -133,7 +133,7 @@ test("real conversation wiring inherits live Strong retention without changing t
 	]);
 	const response = await handleChatInput(chat.id, { type: "text", text: "offline" }, (options) => createTeacherAgent(undefined, {
 		...options,
-		tools: { again: { name: "again", label: "again", description: "fixture", parameters: Type.Object({}), execute: async () => {
+		tools: { again: { name: "again", label: "again", description: "fixture", parameters: { type: "object", properties: {} }, execute: async () => {
 			writeSettings({ ...record, models: { strong: { ...record.models!.strong, cacheRetention: "short" } } });
 			return { content: [{ type: "text", text: "done" }], details: {} };
 		} } },
