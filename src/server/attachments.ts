@@ -107,7 +107,9 @@ export async function storeAttachment(
  *  message stores the native path. */
 export function attachmentIdsInText(text: string): Set<string> {
 	const ids = new Set<string>();
-	const pattern = /[\\/]attachments[\\/]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[\\/]/gi;
+	// `+` because session cleanup scans JSON.stringify(messages): Windows
+	// paths arrive there with doubled backslashes.
+	const pattern = /[\\/]+attachments[\\/]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[\\/]+/gi;
 	for (const match of text.matchAll(pattern)) {
 		if (ATTACHMENT_ID_RE.test(match[1]!)) ids.add(match[1]!.toLowerCase());
 	}

@@ -25,6 +25,7 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 		event.preventDefault();
 		event.stopPropagation();
 		clearDrag();
+		const dropZone = event.currentTarget;
 		const files = Array.from(event.dataTransfer.files);
 		const entries = Array.from(event.dataTransfer.items).filter((item) => item.kind === "file");
 		const resolve = window.lh?.getPathForFile;
@@ -65,7 +66,7 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 				return;
 			}
 			const focused = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
-			if (focused && event.currentTarget.contains(focused)) {
+			if (focused && dropZone.contains(focused)) {
 				focused.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
 			} else if (!appendToPrimaryInput(paths.map(quoteFilePath).join(" "))) {
 				setNotice("Open a chat to attach file paths.");

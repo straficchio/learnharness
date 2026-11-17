@@ -77,6 +77,9 @@ test("extracts app attachment ids from POSIX and Windows message text", () => {
 	const id = "11111111-2222-4333-8444-555555555555";
 	assert.deepEqual([...attachmentIdsInText(`see /x/attachments/${id}/paper.pdf`)], [id]);
 	assert.deepEqual([...attachmentIdsInText(`see C:\\x\\attachments\\${id}\\paper.pdf`)], [id]);
+	// Session cleanup scans the serialized record, where Windows separators
+	// are doubled by JSON escaping.
+	assert.deepEqual([...attachmentIdsInText(JSON.stringify([{ content: `C:\\x\\attachments\\${id}\\paper.pdf` }]))], [id]);
 	assert.equal(attachmentIdsInText(`/x/attachments/not-a-uuid/paper.pdf`).size, 0);
 });
 

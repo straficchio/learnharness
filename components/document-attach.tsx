@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { PaperclipIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -64,11 +65,25 @@ export function AttachDocumentButton({
 	className?: string;
 }) {
 	const fileRef = React.useRef<HTMLInputElement>(null);
+	const wrapperRef = React.useRef<HTMLSpanElement>(null);
 	const [busy, setBusy] = React.useState(false);
 	const [error, setError] = React.useState<string | null>(null);
+	const [anchor, setAnchor] = React.useState<{ left: number; top: number } | null>(null);
+
+	const clearError = () => {
+		setError(null);
+		setAnchor(null);
+	};
+	const reportError = (message: string) => {
+		const rect = wrapperRef.current?.getBoundingClientRect();
+		setAnchor(rect
+			? { left: Math.max(8, Math.min(window.innerWidth - 272, rect.right - 256)), top: rect.top - 6 }
+			: null);
+		setError(message);
+	};
 
 	const pick = () => {
-		setError(null);
+		clearError();
 		fileRef.current?.click();
 	};
 
@@ -76,33 +91,33 @@ export function AttachDocumentButton({
 		if (files.length === 0) return;
 		const documents = files.filter(isAttachableDocument);
 		if (documents.length !== files.length) {
-			setError("Only PDF and text documents can be attached.");
+			reportError("Only PDF and text documents can be attached.");
 			if (documents.length === 0) return;
 		}
 		const existing = attachmentPathsIn(value).length;
 		if (existing + documents.length > ATTACHMENT_MAX_FILES) {
-			setError(`You can attach up to ${ATTACHMENT_MAX_FILES} documents to one message.`);
+			reportError(`You can attach up to ${ATTACHMENT_MAX_FILES} documents to one message.`);
 			return;
 		}
 		const tooLarge = documents.find((file) => file.size > ATTACHMENT_MAX_BYTES);
 		if (tooLarge) {
-			setError(`${tooLarge.name} is larger than ${ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB.`);
+			reportError(`${tooLarge.name} is larger than ${ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB.`);
 			return;
 		}
 		setBusy(true);
-		setError(null);
+		clearError();
 		const uploaded: string[] = [];
 		try {
 			for (const file of documents) {
 				try {
 					uploaded.push((await uploadAttachment(file, chatId)).path);
 				} catch (cause) {
-					setError(cause instanceof Error ? cause.message : `Could not attach ${file.name}.`);
+					reportError(cause instanceof Error ? cause.message : `Could not attach ${file.name}.`);
 					break;
 				}
 			}
 			if (!insertPaths(inputRef.current, uploaded)) {
-				setError("Could not place the document in this field.");
+				reportError("Could not place the document in this field.");
 			}
 		} finally {
 			setBusy(false);
@@ -110,49 +125,58 @@ export function AttachDocumentButton({
 	};
 
 	return (
-		<span className={cn("relative inline-flex shrink-0", className)}>
-			<input
-				ref={fileRef}
-				type="file"
-				multiple
-				accept={ATTACHMENT_ACCEPT}
-				className="hidden"
-				onChange={(event) => {
-					const files = Array.from(event.target.files ?? []);
-					event.target.value = "";
-					void attach(files);
-				}}
-			/>
-			<Button
-				type="button"
-				variant="ghost"
-				size="icon"
-				aria-label="Attach PDF or text"
-				aria-busy={busy}
-				title="Attach PDF or text"
-				disabled={busy}
-				onMouseDown={(event) => event.preventDefault()}
-				onClick={pick}
-				className={cn(compact ? "size-7" : "size-10", "lh-no-drag")}
-			>
-				{busy ? <BrailleSpinner /> : <PaperclipIcon className={compact ? "size-3.5" : "size-4"} />}
-			</Button>
-			{error && (
+		<>
+			<span ref={wrapperRef} className={cn("relative inline-flex shrink-0", className)}>
+				<input
+					ref={fileRef}
+					type="file"
+					multiple
+					accept={ATTACHMENT_ACCEPT}
+					className="hidden"
+					onChange={(event) => {
+						const files = Array.from(event.target.files ?? []);
+						event.target.value = "";
+						void attach(files);
+					}}
+				/>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					aria-label="Attach PDF or text"
+					aria-busy={busy}
+					title="Attach PDF or text"
+					disabled={busy}
+					onMouseDown={(event) => event.preventDefault()}
+					onClick={pick}
+					className={cn(compact ? "size-7" : "size-10", "lh-no-drag")}
+				>
+					{busy ? <BrailleSpinner /> : <PaperclipIcon className={compact ? "size-3.5" : "size-4"} />}
+				</Button>
+			</span>
+			{error && typeof document !== "undefined" && createPortal(
 				<span
 					role="alert"
-					className="absolute bottom-full right-0 z-50 mb-1 flex w-64 items-start gap-1.5 rounded-md border bg-card p-2 text-left text-xs text-destructive shadow-lg"
+					style={{
+						position: "fixed",
+						left: anchor?.left ?? 8,
+						top: anchor?.top ?? 8,
+						transform: anchor ? "translateY(-100%)" : undefined,
+					}}
+					className="z-[70] flex w-64 items-start gap-1.5 rounded-md border bg-card p-2 text-left text-xs text-destructive shadow-lg"
 				>
 					<span className="min-w-0 flex-1">{error}</span>
 					<button
 						type="button"
 						aria-label="Dismiss attachment error"
-						onClick={() => setError(null)}
+						onClick={clearError}
 						className="shrink-0 rounded-sm p-0.5 hover:bg-accent"
 					>
 						<XIcon className="size-3" />
 					</button>
-				</span>
+				</span>,
+				document.body,
 			)}
-		</span>
+		</>
 	);
 }
