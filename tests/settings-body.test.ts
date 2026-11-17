@@ -29,9 +29,18 @@ describe("parseGeneralSettingsBody", () => {
 		assert.deepEqual(on.settings, { autoUpdate: true });
 	});
 
-	it("rejects non-objects and non-boolean autoUpdate", () => {
+	it("parses attachmentRetentionDays within the admin range", () => {
+		const parsed = parseGeneralSettingsBody({ attachmentRetentionDays: 45 });
+		assert.ok(parsed.ok);
+		assert.deepEqual(parsed.settings, { attachmentRetentionDays: 45 });
+	});
+
+	it("rejects non-objects, non-boolean autoUpdate and out-of-range retention", () => {
 		assert.equal(parseGeneralSettingsBody("x").ok, false);
 		assert.equal(parseGeneralSettingsBody({ autoUpdate: "yes" }).ok, false);
+		assert.equal(parseGeneralSettingsBody({ attachmentRetentionDays: 0 }).ok, false);
+		assert.equal(parseGeneralSettingsBody({ attachmentRetentionDays: 1.5 }).ok, false);
+		assert.equal(parseGeneralSettingsBody({ attachmentRetentionDays: 3651 }).ok, false);
 	});
 });
 

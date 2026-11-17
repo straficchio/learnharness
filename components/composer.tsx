@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { PathInput } from "@/components/path-input";
+import { AttachDocumentButton } from "@/components/document-attach";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -58,6 +59,7 @@ export function ChatSessionComposer({
 	placeholder,
 	nextProblem,
 	onNext,
+	attachmentChatId,
 }: {
 	busy: boolean;
 	value: string;
@@ -73,6 +75,8 @@ export function ChatSessionComposer({
 	placeholder?: string;
 	nextProblem?: boolean;
 	onNext?: () => void;
+	/** Existing session id; absent = new-session draft attachment scope. */
+	attachmentChatId?: string;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
@@ -96,6 +100,7 @@ export function ChatSessionComposer({
 			placeholder={placeholder}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			attachmentChatId={attachmentChatId}
 		/>
 	);
 }
@@ -113,6 +118,7 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	attachmentChatId,
 }: {
 	busy: boolean;
 	value: string;
@@ -138,7 +144,11 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** Existing session id; absent = new-session draft attachment scope. */
+	attachmentChatId?: string;
 }) {
+	const localInputRef = useRef<HTMLDivElement>(null);
+	const fieldRef = inputRef ?? localInputRef;
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
@@ -155,7 +165,7 @@ export function Composer({
 			}}
 		>
 			<PathInput
-				ref={inputRef}
+				ref={fieldRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget
@@ -181,6 +191,11 @@ export function Composer({
 				placeholder={placeholder}
 				autoFocus={autoFocus}
 				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
+			/>
+			<AttachDocumentButton
+				inputRef={fieldRef}
+				value={value}
+				chatId={attachmentChatId}
 			/>
 			{/* The button follows the text (owner report 2026-10-03): while
 				 a turn runs WITH text typed it stays the SEND affordance

@@ -35,6 +35,7 @@ describe("Composer", () => {
 		const html = render();
 		assert.match(html, /Ask, answer, or steer the lesson/, "the default — active sessions");
 		assert.ok(html.includes('aria-label="Send"'), "send button present");
+		assert.ok(html.includes('aria-label="Attach PDF or text"'), "document attachment is available in the composer");
 	});
 
 	it("placeholder is overridable — the new-session page asks the graph view's question", () => {

@@ -20,7 +20,7 @@ import {
 describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
-		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: false });
+		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: false, attachmentRetentionDays: 30 });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
@@ -124,6 +124,15 @@ describe("sanitizeUserSettings", () => {
 			const dropped = sanitizeUserSettings({ version: 1, graph: { extractionChunkTokens: junk } });
 			assert.equal(dropped?.graph?.extractionChunkTokens, undefined, `junk ${String(junk)} drops`);
 		}
+	});
+
+	it("attachment retention clamps to the admin range and drops non-numbers", () => {
+		const low = sanitizeUserSettings({ general: { attachmentRetentionDays: 0 } });
+		const high = sanitizeUserSettings({ general: { attachmentRetentionDays: 9999 } });
+		const invalid = sanitizeUserSettings({ general: { attachmentRetentionDays: "30" } });
+		assert.deepEqual(low?.general, { attachmentRetentionDays: 1 });
+		assert.deepEqual(high?.general, { attachmentRetentionDays: 3650 });
+		assert.deepEqual(invalid?.general, {});
 	});
 
 	it("out-of-range numbers CLAMP (proseFontSize, headingWeight)", () => {

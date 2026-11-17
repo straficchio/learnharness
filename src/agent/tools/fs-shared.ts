@@ -1,19 +1,22 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { AUTH_FILE, BASE_DATA_ROOT } from "../../../config.ts";
+import { AUTH_FILE, BASE_DATA_ROOT, isAttachmentPath } from "../../../config.ts";
 
 /**
  * Shared plumbing for the learner-filesystem tools (ls / find / grep) —
  * sources v1 (2026-09-19): the agent locates and reads the learner's files
- * itself, so paths need no UI affordance (user decision: no attachments —
- * the learner references files in messages; the agent finds them).
+ * itself; a message may reference a path the learner typed or an app-managed
+ * attachment copy (attachment wave, 2026-11-17).
  *
  * Safety posture (user-locked): READ-ONLY by construction — no shell-out,
  * no user-controlled process args, no mutation APIs anywhere here. The one
  * deliberate scope widening vs pi: relative paths and default roots resolve
  * against the LEARNER'S HOME, not a project cwd — the harness has no
  * meaningful working directory, and "find my notes" should just work.
+ * App-managed attachment copies are the single allowed subtree under the
+ * data root; resolveAllowedPath still checks the realpath so a symlink cannot
+ * use that exception to reach a credential file.
  *
  * Ported behaviors (mirroring pi's dist/core/tools/{ls,find,grep}.js): the
  * schemas, descriptions, output formats, and truncation notices are copied
@@ -98,6 +101,10 @@ const DENIED_BASENAME_RE =
  *  Pure path check (no fs); explicit reads additionally realpath first. */
 export function isDeniedPath(candidate: string): boolean {
 	const resolved = norm(candidate);
+	// App-managed document copies are the one deliberate read surface under
+	// the data root. resolveAllowedPath still checks the realpath, so a
+	// symlink cannot use this exception to reach a credential file.
+	if (isAttachmentPath(resolved)) return false;
 	if (DENIED_ROOTS.some((root) => under(root, resolved))) return true;
 	const base = path.basename(resolved);
 	if (DENIED_BASENAME_RE.test(base)) return true;

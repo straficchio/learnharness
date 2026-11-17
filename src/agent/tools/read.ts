@@ -9,11 +9,11 @@ import { redactSecrets } from "./redact.ts";
 
 /**
  * The read tool — sources v0 (2026-09): a Node port of pi's read semantics
- * for the learner's local files. The flow is learner-owned: he pastes file
- * paths into the chat, the agent reads on its own terms (nothing is
- * auto-injected). Reads are intentionally broad for study material but go
- * through the credential-path guard in fs-shared.ts; this is a personal
- * study harness, not a multi-tenant service.
+ * for the learner's local files. The flow is learner-owned: he pastes a file
+ * path or attaches a document copy into a message, the agent reads on its own
+ * terms (nothing is auto-injected). Reads are intentionally broad for study
+ * material but go through the credential-path guard in fs-shared.ts; this is
+ * a personal study harness, not a multi-tenant service.
  *
  * Ported behaviors (mirroring pi's dist/core/tools/read.js):
  * - text files: utf-8, offset (1-indexed) / limit slicing, and the

@@ -32,6 +32,9 @@ import {
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import {
+	ATTACHMENT_RETENTION_DAYS_DEFAULT,
+	ATTACHMENT_RETENTION_DAYS_MAX,
+	ATTACHMENT_RETENTION_DAYS_MIN,
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
 	type AppearanceSettings,
@@ -40,7 +43,7 @@ import {
 	type UserSettings,
 } from "@/src/core";
 import { useAppearance } from "./appearance.tsx";
-import { SettingsSection } from "./controls.tsx";
+import { CommitInput, SettingsRow, SettingsSection } from "./controls.tsx";
 import { UpdateSettings } from "./update-settings.tsx";
 import { AgentSection } from "./agent-section.tsx";
 import { LocalEngineSection } from "./local-engine-section.tsx";
@@ -165,7 +168,6 @@ export function SettingsDialogBody({
 	const visibleSections = SECTIONS.filter((section) => {
 		if (!admin) return section.id === "appearance";
 		if (section.id === "users" || section.id === "server") return serverMode;
-		if (section.id === "general") return standalone;
 		return true;
 	});
 	const fallbackSection: SectionId = admin ? "keys" : "appearance";
@@ -399,6 +401,23 @@ export function SettingsDialogBody({
 											})
 										}
 									/>
+									<SettingsRow
+										label="Abandoned attachment retention"
+										hint={`Days an unused new-session document copy is kept. Existing-session copies are removed after one hour once unreferenced. ${ATTACHMENT_RETENTION_DAYS_MIN}–${ATTACHMENT_RETENTION_DAYS_MAX} days.`}
+										testid="row-attachment-retention"
+									>
+										<CommitInput
+											type="number"
+											value={String(record.general?.attachmentRetentionDays ?? ATTACHMENT_RETENTION_DAYS_DEFAULT)}
+											ariaLabel="Abandoned attachment retention days"
+											testid="attachment-retention-days"
+											onCommit={(next) => {
+												const days = Number(next);
+												if (!Number.isSafeInteger(days) || days < ATTACHMENT_RETENTION_DAYS_MIN || days > ATTACHMENT_RETENTION_DAYS_MAX) return;
+												void write("general", { ...record.general, attachmentRetentionDays: days });
+											}}
+										/>
+									</SettingsRow>
 								</SettingsSection>
 							)}
 							{active === "keys" && (

@@ -47,7 +47,29 @@ export const PATHS = {
 	get debug(): string {
 		return path.join(scopeRoot(BASE_DATA_ROOT), "debug");
 	},
+	/** App-managed document copies. Referenced by quoted path chips and read
+	 *  through the ordinary file tools. */
+	get attachments(): string {
+		return path.join(scopeRoot(BASE_DATA_ROOT), "attachments");
+	},
 } as const;
+
+/** The attachment root for an explicit user data root (the sweeper walks
+ *  every user, not only the active request scope). */
+export function attachmentsRootFor(root: string): string {
+	return path.join(root, "attachments");
+}
+
+/** True only for the app-managed attachment subtree. This is the narrow
+ *  exception to the file-tool data-root/credential guard — realpath is
+ *  checked separately by resolveAllowedPath, so a symlink cannot escape. */
+export function isAttachmentPath(candidate: string): boolean {
+	const resolved = path.resolve(candidate);
+	const target = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+	const root = path.resolve(PATHS.attachments);
+	const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
+	return target === normalizedRoot || target.startsWith(`${normalizedRoot}${path.sep}`);
+}
 
 /** The server-wide account registry (hashes live here, never in chat data). */
 export const USERS_FILE = path.join(BASE_DATA_ROOT, "users.json");

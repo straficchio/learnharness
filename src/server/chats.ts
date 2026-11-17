@@ -4,6 +4,8 @@ import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
+import { cleanupChatAttachments } from "./attachments.ts";
+import { PATHS } from "../../config.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
@@ -149,9 +151,17 @@ function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatD
 
 function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
+	const record = stores.chatStore.getChat(chatId);
+	const root = PATHS.data;
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
+		// Session-scoped attachment lifecycle: the copy goes with its final
+		// reference. Fire-and-forget so the synchronous deletion block stays
+		// synchronous; the sweep is the backstop if the process dies here.
+		if (record) void cleanupChatAttachments(root, record.messages).catch((error) => {
+			console.error("[attachments] session cleanup failed:", error);
+		});
 	}
 	return jobsRemoved;
 }

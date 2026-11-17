@@ -1259,10 +1259,13 @@ function SessionsSidebar() {
 /** The app frame: sidebar pinned inline or overlaid, plus content. */
 export function AppShell({ children }: { children: React.ReactNode }) {
 	const { overlayOpen, close } = useSidebar();
+	const pathname = usePathname();
+	const chatMatch = /^\/chat\/([^/?#]+)/.exec(pathname);
+	const attachmentChatId = chatMatch && chatMatch[1] !== "new" ? chatMatch[1] : undefined;
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
-			<FilePathDropZone className="relative min-w-0 flex-1" inert={overlayOpen}>{children}</FilePathDropZone>
+			<FilePathDropZone className="relative min-w-0 flex-1" inert={overlayOpen} attachmentChatId={attachmentChatId}>{children}</FilePathDropZone>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}

@@ -28,6 +28,8 @@ import type {
 	RoleModelOverride,
 } from "../core/settings.ts";
 import {
+	ATTACHMENT_RETENTION_DAYS_MAX,
+	ATTACHMENT_RETENTION_DAYS_MIN,
 	BACKGROUND_MODEL_ROLES,
 	CACHE_RETENTIONS,
 	COMPACTION_THRESHOLD_FLOOR,
@@ -88,7 +90,7 @@ function asRecord(body: unknown): Record<string, unknown> | null {
 	return body as Record<string, unknown>;
 }
 
-/** general: { autoUpdate?: boolean } */
+/** general: { autoUpdate?: boolean, attachmentRetentionDays?: 1..3650 } */
 export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<GeneralSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -98,6 +100,13 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "autoUpdate must be a boolean" };
 		}
 		settings.autoUpdate = raw.autoUpdate;
+	}
+	if (raw.attachmentRetentionDays !== undefined) {
+		if (typeof raw.attachmentRetentionDays !== "number" || !Number.isSafeInteger(raw.attachmentRetentionDays) ||
+			raw.attachmentRetentionDays < ATTACHMENT_RETENTION_DAYS_MIN || raw.attachmentRetentionDays > ATTACHMENT_RETENTION_DAYS_MAX) {
+			return { ok: false, error: `attachmentRetentionDays must be an integer between ${ATTACHMENT_RETENTION_DAYS_MIN} and ${ATTACHMENT_RETENTION_DAYS_MAX}` };
+		}
+		settings.attachmentRetentionDays = raw.attachmentRetentionDays;
 	}
 	return { ok: true, settings };
 }

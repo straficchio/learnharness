@@ -79,7 +79,8 @@ async function fixture({ desktop = true, claimed = true } = {}) {
 	};
 	const editor = doc.querySelector<HTMLElement>('[data-testid="editor"]')!;
 	function file(name: string, path?: string | Error) {
-		const result = new File(["synthetic bytes must never be read"], name, { type: "application/pdf" });
+		const type = /\.pdf$/i.test(name) ? "application/pdf" : /\.png$/i.test(name) ? "image/png" : "application/octet-stream";
+		const result = new File(["synthetic bytes must never be read"], name, { type });
 		for (const method of ["text", "arrayBuffer", "stream"] as const) {
 			Object.defineProperty(result, method, { value: () => { byteReads++; throw new Error("No file content reads"); } });
 		}
@@ -115,8 +116,8 @@ async function fixture({ desktop = true, claimed = true } = {}) {
 test("desktop drop inserts quoted paths at the focused editor caret instead of the dictation claimant", async () => {
 	const f = await fixture();
 	f.focusEditor(4);
-	const paths = ["/actual/course notes.pdf", "C:\\course\\chapter`one.pdf", "\\\\host\\share\\図.png"];
-	const files = paths.map((path, index) => f.file(`display-name-${index}.pdf`, path));
+	const paths = ["/actual/course notes.png", "C:\\course\\chapter`one.png", "\\\\host\\share\\図.png"];
+	const files = paths.map((path, index) => f.file(`display-name-${index}.png`, path));
 	const dropped = await f.event("drop", f.transfer(files));
 	assert.equal(dropped.defaultPrevented, true);
 	assert.equal(f.value, `read ${paths.map(quoteFilePath).join(" ")} this`);
@@ -130,10 +131,10 @@ test("desktop drop inserts quoted paths at the focused editor caret instead of t
 
 test("a successful drop clears an earlier failure without replacing it with a confirmation bubble", async () => {
 	const f = await fixture();
-	await f.event("drop", f.transfer([f.file("virtual.pdf")]));
+	await f.event("drop", f.transfer([f.file("virtual.png")]));
 	assert.match(f.status, /No local file paths were available/);
-	await f.event("drop", f.transfer([f.file("valid.pdf", "/existing/valid.pdf")]));
-	assert.deepEqual(f.appends, ["`/existing/valid.pdf`"]);
+	await f.event("drop", f.transfer([f.file("valid.png", "/existing/valid.png")]));
+	assert.deepEqual(f.appends, ["`/existing/valid.png`"]);
 	assert.equal(f.doc.querySelector('[role="status"]'), null);
 	f.assertPathOnly();
 });
@@ -142,8 +143,8 @@ test("unfocused drop uses the dictation target registry, not the last focused ed
 	const f = await fixture();
 	f.focusEditor(4);
 	f.doc.querySelector<HTMLElement>('[data-testid="elsewhere"]')!.focus();
-	const paths = ["~/notes one.pdf", "/tmp/notes`final`"];
-	await f.event("drop", f.transfer(paths.map((path) => f.file("not-a-physical-path.pdf", path))));
+	const paths = ["~/notes one.png", "/tmp/notes`final`"];
+	await f.event("drop", f.transfer(paths.map((path) => f.file("not-a-physical-path.png", path))));
 	assert.deepEqual(f.appends, [paths.map(quoteFilePath).join(" ")]);
 	assert.equal(f.value, "readthis", "saved editor caret must not override current default target");
 	f.assertPathOnly();
@@ -151,7 +152,7 @@ test("unfocused drop uses the dictation target registry, not the last focused ed
 
 test("browser drop prevents navigation, explains desktop-only local paths and never infers File.name", async () => {
 	const f = await fixture({ desktop: false });
-	const transfer = f.transfer([f.file("/not/a/backing/path.pdf")]);
+	const transfer = f.transfer([f.file("/not/a/backing/path.png")]);
 	const enter = await f.event("dragenter", transfer);
 	assert.equal(enter.defaultPrevented, true);
 	assert.match(f.doc.querySelector('[data-testid="file-path-drop-indicator"]')!.textContent!, /desktop app/);
@@ -172,23 +173,23 @@ test("browser drop prevents navigation, explains desktop-only local paths and ne
 test("invalid, virtual and directory items are skipped while valid backing paths stay ordered", async () => {
 	const f = await fixture();
 	const files = [
-		f.file("virtual.pdf"), f.file("bad.pdf", "relative.pdf"), f.file("broken.pdf", new Error("not backed")),
-		f.file("folder", "/directory"), f.file("valid.pdf", "/existing/valid.pdf"),
-		f.file("multiline.pdf", "/a\nb.pdf"), f.file("NUL.pdf", "/a\0b.pdf"), f.file("url.pdf", "file:///a.pdf"),
+		f.file("virtual.png"), f.file("bad.png", "relative.png"), f.file("broken.png", new Error("not backed")),
+		f.file("folder", "/directory"), f.file("valid.png", "/existing/valid.png"),
+		f.file("multiline.png", "/a\nb.png"), f.file("NUL.png", "/a\0b.png"), f.file("url.png", "file:///a.png"),
 	];
 	await f.event("drop", f.transfer(files, [3]));
-	assert.deepEqual(f.appends, ["`/existing/valid.pdf`"]);
+	assert.deepEqual(f.appends, ["`/existing/valid.png`"]);
 	assert.equal(f.resolved.includes(files[3]!), false, "directory metadata prevents resolving a folder");
-	assert.match(f.status, /Some dropped items had no available file path/);
+	assert.match(f.status, /Some dropped items were not attached/);
 	f.assertPathOnly();
 });
 
 test("a drop with no backing paths or no destination has a truthful notice and stages nothing", async () => {
 	const f = await fixture({ claimed: false });
-	const missing = await f.event("drop", f.transfer([f.file("virtual.pdf")]));
+	const missing = await f.event("drop", f.transfer([f.file("virtual.png")]));
 	assert.equal(missing.defaultPrevented, true);
 	assert.match(f.status, /No local file paths were available/);
-	await f.event("drop", f.transfer([f.file("valid.pdf", "/existing/valid.pdf")]));
+	await f.event("drop", f.transfer([f.file("valid.png", "/existing/valid.png")]));
 	assert.match(f.status, /Open a chat to attach file paths/);
 	assert.deepEqual(f.appends, []);
 	assert.equal(f.value, "readthis");
@@ -202,7 +203,7 @@ test("non-file drags stay native; sidebar file drops prevent navigation without 
 		assert.equal((await f.event(type, plain)).defaultPrevented, false);
 	}
 	const sidebar = f.doc.querySelector('[data-testid="sidebar"]')!;
-	assert.equal((await f.event("drop", f.transfer([f.file("notes.pdf", "/existing/notes.pdf")]), sidebar)).defaultPrevented, true);
+	assert.equal((await f.event("drop", f.transfer([f.file("notes.png", "/existing/notes.png")]), sidebar)).defaultPrevented, true);
 	assert.deepEqual(f.resolved, []);
 	assert.deepEqual(f.appends, []);
 	assert.equal(f.status, "");
@@ -211,7 +212,7 @@ test("non-file drags stay native; sidebar file drops prevent navigation without 
 
 test("nested enter/leave depth keeps the drop overlay until the zone is left; notice is dismissible", async () => {
 	const f = await fixture({ desktop: false });
-	const transfer = f.transfer([f.file("notes.pdf")]);
+	const transfer = f.transfer([f.file("notes.png")]);
 	await f.event("dragenter", transfer);
 	await f.event("dragenter", transfer);
 	await f.event("dragleave", transfer);

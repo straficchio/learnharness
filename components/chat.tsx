@@ -1777,6 +1777,7 @@ export function Chat({
 							revision={composerDraftRevision}
 							onChange={recordComposerText}
 							inputRef={composerInputRef}
+							attachmentChatId={chatId}
 							onSend={onSend}
 							onStop={abortInFlightTurn}
 							sendAllowed={sendAllowed}
@@ -2421,6 +2422,7 @@ function DockOverlay({
 									: undefined
 							}
 							claim={revealPending}
+							chatId={chatId}
 						/>
 					)}
 					<div ref={shellRef} className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
@@ -2446,6 +2448,7 @@ function DockOverlay({
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
+									chatId={chatId}
 								/>
 							) : practice ? (
 								<PracticeDock
@@ -2459,6 +2462,7 @@ function DockOverlay({
 									onSubmit={onSubmitThinking}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
+									chatId={chatId}
 								/>
 							) : (
 								composer

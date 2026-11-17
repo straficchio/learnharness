@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
+import { AttachDocumentButton } from "@/components/document-attach";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,8 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	/** Existing session id for document attachments. */
+	chatId?: string;
 }
 
 export function QuestionDock({
@@ -113,6 +116,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	chatId,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -165,6 +169,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					chatId={chatId}
 				/>
 			</div>
 		</>
@@ -262,6 +267,7 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
+	chatId,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
 
@@ -438,6 +444,7 @@ function QuestionDockForm({
 	const [kbdIdx, setKbdIdx] = useState<number | null>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const otherInputRef = useRef<HTMLDivElement>(null);
+	const answerInputRef = useRef<HTMLDivElement>(null);
 	const thinkingRef = useRef<HTMLDivElement>(null);
 	// One row past the options is the trailing row: quiz → don't-know,
 	// ask → Other (a question never has both). Text mode (ask/explain)
@@ -846,11 +853,20 @@ function QuestionDockForm({
 					data-testid={qd.mode === "text" ? "answer-field" : "thinking-field"}
 					className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 				>
-					<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
+					<div className="flex items-center justify-between gap-2 px-2.5 pt-2">
+						<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+							{qd.mode === "text" ? "Your answer" : "YOUR THINKING"}
+						</div>
+						<AttachDocumentButton
+							compact
+							inputRef={qd.mode === "text" ? answerInputRef : thinkingRef}
+							value={qd.mode === "text" ? text : thinking}
+							chatId={chatId}
+						/>
 					</div>
 					{qd.mode === "text" ? (
 						<PathInput
+							ref={answerInputRef}
 							value={text}
 							onValueChange={(value) => {
 								answerTextRef.current = value;

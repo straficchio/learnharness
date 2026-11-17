@@ -38,6 +38,7 @@ for (const reusedId of [false, true]) {
 			const old = question("old", "q1", "OLD question");
 			await render([old]);
 			const oldForm = host.querySelector('[data-testid="question-dock"]');
+			assert.ok(host.querySelector('[aria-label="Attach PDF or text"]'), "the answer/thinking field can attach a document");
 			await act(async () => { host.querySelector<HTMLButtonElement>('[role="radio"]')!.click(); });
 			assert.ok(host.querySelector('[role="radio"][aria-checked="true"]'));
 			await render([old, question("new", reusedId ? "q1" : "q2", "NEW question")]);

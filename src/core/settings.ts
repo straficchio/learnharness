@@ -394,7 +394,15 @@ export interface GeneralSettings {
 	 *  always works). Electron reads this from settings.json before every
 	 *  automatic check, so the toggle needs no restart. */
 	autoUpdate?: boolean;
+	/** How long an unreferenced new-session attachment copy is kept before
+	 *  the retention sweep deletes it. Admin-only (General is the admin
+	 *  section). Existing-session copies use a fixed one-hour grace. */
+	attachmentRetentionDays?: number;
 }
+
+export const ATTACHMENT_RETENTION_DAYS_DEFAULT = 30;
+export const ATTACHMENT_RETENTION_DAYS_MIN = 1;
+export const ATTACHMENT_RETENTION_DAYS_MAX = 3650;
 
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
@@ -574,7 +582,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: false },
+	general: { autoUpdate: false, attachmentRetentionDays: ATTACHMENT_RETENTION_DAYS_DEFAULT },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -620,6 +628,13 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	const out: GeneralSettings = {};
 	const autoUpdate = boolOrDrop(raw.autoUpdate);
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
+	if (typeof raw.attachmentRetentionDays === "number" && Number.isFinite(raw.attachmentRetentionDays)) {
+		out.attachmentRetentionDays = clamp(
+			Math.round(raw.attachmentRetentionDays),
+			ATTACHMENT_RETENTION_DAYS_MIN,
+			ATTACHMENT_RETENTION_DAYS_MAX,
+		);
+	}
 	return out;
 }
 

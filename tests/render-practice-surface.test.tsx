@@ -57,6 +57,7 @@ describe("PracticeDock", () => {
 		assert.match(html, /--dock-max-h/);
 		assert.match(html, /YOUR THINKING/);
 		assert.match(html, /data-testid="practice-send"/);
+		assert.match(html, /aria-label="Attach PDF or text"/);
 		assert.ok(!html.includes("practice-nudge") && !html.includes("practice-commit"), "the two-lane buttons are gone");
 		// The buttons carry their lane in the disabled gate; both start
 		// disabled (empty field).

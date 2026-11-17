@@ -19,5 +19,6 @@ describe("the reading-thinking field (owner round, 2026-10-07)", () => {
 		assert.ok(html.includes("py-0.5"), "the vertical padding is on the textarea");
 		// The cap survives: growth past max-h-40 still scrolls honestly.
 		assert.ok(html.includes("max-h-40"), "the 160px growth cap stays");
+		assert.ok(html.includes('aria-label="Attach PDF or text"'), "reading-thinking can attach a document");
 	});
 });

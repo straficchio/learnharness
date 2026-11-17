@@ -229,6 +229,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 	return {
 		general: {
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
+			attachmentRetentionDays: record?.general?.attachmentRetentionDays ?? FACTORY_SETTINGS.general.attachmentRetentionDays,
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,

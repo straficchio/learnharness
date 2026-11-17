@@ -95,11 +95,11 @@ test("non-admin settings expose only Appearance", () => {
 	assert.match(html, /settings-nav-appearance[^>]*aria-current="true"/);
 });
 
-test("admin server settings add Users and Server and hide desktop-only General", () => {
+test("admin server settings add Users, Server and the admin-only General", () => {
 	const html = settingsMarkup("admin", true);
 	assert.match(html, /settings-nav-users/);
 	assert.match(html, /settings-nav-server/);
-	assert.doesNotMatch(html, /settings-nav-general/);
+	assert.match(html, /settings-nav-general/);
 	assert.match(html, /settings-nav-keys[^>]*aria-current="true"/);
 });
 
