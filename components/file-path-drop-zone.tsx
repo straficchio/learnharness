@@ -9,7 +9,7 @@ import { readPathInput } from "@/components/path-input-dom";
 import { uploadAttachment } from "@/components/document-attach";
 import { ATTACHMENT_MAX_FILES, attachmentPathsIn, isAttachableDocument } from "@/lib/attachment-limits.ts";
 
-const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
+const BROWSER_NOTICE = "PDF and text documents upload here. Other local file paths need the desktop app; you can paste a full path.";
 
 /** The content area only: the sidebar is deliberately outside this zone.
  * Existing files stay where they are; only quoted path strings enter drafts. */
