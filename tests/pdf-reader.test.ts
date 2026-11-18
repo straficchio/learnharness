@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
-import { runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
+import { pdfIterationBudget, runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
 import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
@@ -234,5 +234,31 @@ describe("pdf-reader loop (faux engine)", () => {
 		assert.ok(!result.brief.includes("never reached"));
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);
+	});
+});
+
+describe("pdf-reader adaptive budget (attachment wave)", () => {
+	it("scales the model-call budget by document size", () => {
+		assert.equal(pdfIterationBudget(3), 14);
+		assert.equal(pdfIterationBudget(40), 14);
+		assert.equal(pdfIterationBudget(41), 30);
+		assert.equal(pdfIterationBudget(100), 30);
+		assert.equal(pdfIterationBudget(101), 40);
+	});
+
+	it("spends one final no-tool-choice call on a partial brief instead of returning the limit failure", async () => {
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("pdf_info", {}, { id: "i1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: "1" }, { id: "e1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Partial brief from page 1 (p. 1). Pages 2-3 were not reviewed.")]),
+		]);
+		const result = await runPdfReaderAgent(
+			{ path: FIXTURE, question: "give an overview" },
+			{ engine, maxIterations: 2 },
+		);
+		assert.match(result.brief, /Partial brief from page 1/);
+		assert.doesNotMatch(result.brief, /^PDF failed:/);
+		assert.deepEqual(result.pagesRead, [1]);
+		assert.deepEqual(result.pagesConsulted, [1]);
 	});
 });

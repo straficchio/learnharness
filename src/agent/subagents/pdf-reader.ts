@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AssistantMessage, Message, ToolResultMessage, Usage, Tool } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ToolResultMessage, Usage, Tool, ToolChoice } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { processImage, type ProcessImageResult } from "../image-processing/index.ts";
 import { Type } from "typebox";
@@ -57,12 +57,29 @@ Your FINAL assistant message is your entire deliverable — it must stand alone,
 claim cited as (p. N). End with a line "Pages consulted: N, N, …" listing every page you
 extracted or rendered.`;
 
-const MAX_ITERATIONS = 14;
+const DEFAULT_MAX_ITERATIONS = 14;
+const LARGE_PDF_PAGES = 40;
+const LARGE_PDF_MAX_ITERATIONS = 30;
+const HUGE_PDF_PAGES = 100;
+const HUGE_PDF_MAX_ITERATIONS = 40;
+
+/** Adaptive reading budget (attachment wave, 2026-11-18): short documents
+ *  keep the original 14-call budget; long documents get room to follow
+ *  their search hits; a final no-tools synthesis guarantees a partial
+ *  cited brief instead of discarding everything at the limit. */
+export function pdfIterationBudget(pageCount: number): number {
+	if (pageCount > HUGE_PDF_PAGES) return HUGE_PDF_MAX_ITERATIONS;
+	if (pageCount > LARGE_PDF_PAGES) return LARGE_PDF_MAX_ITERATIONS;
+	return DEFAULT_MAX_ITERATIONS;
+}
+
 /** Rendered pages per pdf_render call — the skill renders selectively; a
  *  batch cap keeps one over-eager call from flooding the vision context. */
 const RENDER_BATCH_CAP = 6;
 /** Extract output ceiling — narrow the spec instead of dumping a book. */
 const EXTRACT_CAP = 24_000;
+const BUDGET_MESSAGE =
+	"You have reached the reader's tool budget. Write the required brief NOW from the pages you actually consulted. Do not call tools. If the budget prevented full coverage, state that gap explicitly and list what remains unread. Keep the required format and page citations.";
 
 export interface PdfReaderOptions {
 	engine?: PiEngine;
@@ -157,6 +174,14 @@ function toolText(toolCallId: string, toolName: string, value: string): ToolResu
 	};
 }
 
+function assistantText(message: AssistantMessage): string {
+	return message.content
+		.filter((c): c is { type: "text"; text: string } => c.type === "text")
+		.map((c) => c.text)
+		.join("")
+		.trim();
+}
+
 /** Doctrine gate (the visual-maker's unlooked-finish rule, ported): never
  *  deliver a brief that consulted nothing — an unread PDF brief is made-up
  *  content, exactly the class of failure the gate exists for. */
@@ -168,15 +193,16 @@ export async function runPdfReaderAgent(
 	opts: PdfReaderOptions = {},
 ): Promise<PdfResult> {
 	const headless = opts.headless ?? getHeadless();
-	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
 	const pdfPath = resolveSourcePath(input.path);
 
-	// Deterministic upfront failure: unreadable / unparseable
-	// for renders — the brief never starts on a broken source.
-	const openError = await probeReadable(pdfPath);
-	if (openError) {
-		return { path: pdfPath, question: input.question, brief: `PDF failed: ${openError}`, pagesRead: [], pagesConsulted: [] };
+	// Deterministic upfront failure: unreadable/unparseable for renders —
+	// the brief never starts on a broken source. The same open also gives
+	// the page count that sizes the adaptive reading budget.
+	const probe = await probeReadable(pdfPath);
+	if (probe.error) {
+		return { path: pdfPath, question: input.question, brief: `PDF failed: ${probe.error}`, pagesRead: [], pagesConsulted: [] };
 	}
+	const maxIterations = opts.maxIterations ?? pdfIterationBudget(probe.pages);
 	// No Chrome gate (Wave E, 2026-10-10): pdf_render is native now
 	// (pdfjs paints into @napi-rs/canvas in-process) — the whole pdf-reader
 	// runs browser-free; text tools always worked without one.
@@ -192,6 +218,7 @@ export async function runPdfReaderAgent(
 	const streamEngine = { ...engine, streamFn: backgroundCaptureStream(engine.streamFn, capture) };
 	const prompt = [
 		`PDF path: ${pdfPath}`,
+		`Page count: ${probe.pages}`,
 		`Question (what the teacher needs from this document): ${input.question || "(no question — give a structural overview)"}`,
 		"",
 		"Read the document per your doctrine, then produce your final brief in the required format.",
@@ -229,11 +256,7 @@ export async function runPdfReaderAgent(
 				(c): c is Extract<typeof c, { type: "toolCall" }> => c.type === "toolCall",
 			);
 			if (toolCalls.length === 0) {
-				finalText = result.content
-					.filter((c): c is { type: "text"; text: string } => c.type === "text")
-					.map((c) => c.text)
-					.join("")
-					.trim();
+				finalText = assistantText(result);
 				// The gate stays on CONSULTED, not read: search-hit context
 				// lines are genuine consultation (anti-fabrication duty) — a
 				// search-only brief is honest. pagesRead is the UI's honest
@@ -349,6 +372,27 @@ export async function runPdfReaderAgent(
 				];
 			}
 		}
+
+		// Budget exhausted without a final answer: force one last no-tools
+		// synthesis so the pages already consulted are not discarded. The
+		// prompt asks for an explicit gap statement; the result is a partial
+		// cited brief, never the "iteration limit" failure.
+		if (!finalText && consulted.size > 0) {
+			const synthesis = await streamOnce(
+				streamEngine,
+				INSTRUCTIONS,
+				[...messages, { role: "user", content: BUDGET_MESSAGE, timestamp: Date.now() }],
+				toolDeclarations,
+				sessionId,
+				reasoning,
+				opts.abortSignal,
+				opts.chatId ? providerEventObserver(opts.chatId, "job:pdfReader") : undefined,
+				capture,
+				"none",
+			);
+			opts.onUsage?.(synthesis.usage);
+			finalText = assistantText(synthesis);
+		}
 	} catch (err) {
 		captureError = err;
 		const msg = err instanceof Error ? err.message : String(err);
@@ -357,7 +401,8 @@ export async function runPdfReaderAgent(
 		capture?.finish(captureError);
 	}
 
-	// Iteration limit: deliver whatever was honestly consulted (never invention).
+	// Even the forced synthesis can return no text. Never invent a brief
+	// from zero consultation; otherwise the pages read are the deliverable.
 	return {
 		path: pdfPath,
 		question: input.question,
@@ -396,17 +441,17 @@ function numOr(v: unknown, dflt: number): number {
 }
 
 /** Cheap upfront readability probe — real parsing happens inside the tools. */
-async function probeReadable(pdfPath: string): Promise<string | null> {
+async function probeReadable(pdfPath: string): Promise<{ error: string | null; pages: number }> {
 	try {
 		const fs = await import("node:fs/promises");
 		const stat = await fs.stat(pdfPath);
-		if (!stat.isFile()) return "not a regular file";
-		if (stat.size === 0) return "file is empty";
-		// parse probe: pdfProbe throws pdfjs's precise error for garbage files
-		await pdfProbe(pdfPath);
-		return null;
+		if (!stat.isFile()) return { error: "not a regular file", pages: 0 };
+		if (stat.size === 0) return { error: "file is empty", pages: 0 };
+		// Parse probe: pdfProbe throws pdfjs's precise error for garbage files.
+		const pages = await pdfProbe(pdfPath);
+		return { error: null, pages };
 	} catch (err) {
-		return err instanceof Error ? err.message : String(err);
+		return { error: err instanceof Error ? err.message : String(err), pages: 0 };
 	}
 }
 
@@ -422,6 +467,7 @@ async function streamOnce(
 	abortSignal?: AbortSignal,
 	onProviderStreamEvent?: ProviderEventObserver,
 	capture?: BackgroundCapture,
+	toolChoice?: ToolChoice,
 ): Promise<AssistantMessage> {
 	// 0.87.1: provider-facing contexts are TranscriptContexts — the prompt
 	// and tool declarations fold into a leading system message.
@@ -431,6 +477,7 @@ async function streamOnce(
 		reasoning: reasoning && reasoning !== "off" ? reasoning : undefined,
 		signal: abortSignal,
 		onProviderStreamEvent: onProviderStreamEvent as never,
+		...(toolChoice ? { toolChoice } : {}),
 	} as never);
 	for await (const event of stream) {
 		if (event.type === "done") { capture?.reply(event.message); return event.message; }

@@ -105,10 +105,14 @@ function mathDensity(text: string): number {
 
 /** Cheap validity probe: getDocument resolves only for parseable PDFs —
  *  no page walk, no text extraction (unlike pdfInfo). The reader's upfront
- *  unreadable-source gate; garbage files throw pdfjs's precise error. */
-export async function pdfProbe(filePath: string): Promise<void> {
-	const { task } = await openDocument(filePath);
+ *  unreadable-source gate; garbage files throw pdfjs's precise error.
+ *  Returns the page count so the reader can size its tool budget without a
+ *  second document open. */
+export async function pdfProbe(filePath: string): Promise<number> {
+	const { doc, task } = await openDocument(filePath);
+	const pages = doc.numPages;
 	await task.destroy();
+	return pages;
 }
 
 /** pdf_info: page count + per-page triage signals. ALWAYS run first. */
