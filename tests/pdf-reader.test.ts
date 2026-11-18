@@ -252,6 +252,12 @@ describe("pdf-reader adaptive budget (attachment wave)", () => {
 			fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: "1" }, { id: "e1" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Partial brief from page 1 (p. 1). Pages 2-3 were not reviewed.")]),
 		]);
+		let lastOptions: { toolChoice?: string } | undefined;
+		const stream = engine.streamFn;
+		engine.streamFn = (model, context, options) => {
+			lastOptions = options as { toolChoice?: string } | undefined;
+			return stream(model, context, options);
+		};
 		const result = await runPdfReaderAgent(
 			{ path: FIXTURE, question: "give an overview" },
 			{ engine, maxIterations: 2 },
@@ -260,5 +266,6 @@ describe("pdf-reader adaptive budget (attachment wave)", () => {
 		assert.doesNotMatch(result.brief, /^PDF failed:/);
 		assert.deepEqual(result.pagesRead, [1]);
 		assert.deepEqual(result.pagesConsulted, [1]);
+		assert.equal(lastOptions?.toolChoice, "none", "the synthesis call cannot re-enter the tool loop");
 	});
 });
