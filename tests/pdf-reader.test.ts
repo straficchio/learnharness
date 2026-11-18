@@ -246,6 +246,47 @@ describe("pdf-reader adaptive budget (attachment wave)", () => {
 		assert.equal(pdfIterationBudget(101), 40);
 	});
 
+	it("recovers an interrupted read with a cited partial brief", async () => {
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: "1" }, { id: "e1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Interrupted partial brief from page 1 (p. 1). Pages 2-3 were not reviewed.")]),
+		]);
+		const original = engine.streamFn;
+		let calls = 0;
+		engine.streamFn = (model, context, options) => {
+			calls += 1;
+			if (calls === 2) {
+				return (async function* () {
+					throw new Error("agy CLI moved on without admitting its harness tool call");
+				})() as unknown as ReturnType<typeof original>;
+			}
+			return original(model, context, options);
+		};
+		const result = await runPdfReaderAgent(
+			{ path: FIXTURE, question: "give an overview" },
+			{ engine },
+		);
+		assert.match(result.brief, /Interrupted partial brief from page 1/);
+		assert.doesNotMatch(result.brief, /^PDF failed:/);
+		assert.deepEqual(result.pagesRead, [1]);
+		assert.deepEqual(result.pagesConsulted, [1]);
+	});
+
+	it("treats a textless finish as an interrupted read, not as a brief", async () => {
+		const engine = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: "1" }, { id: "e1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([]),
+			fauxAssistantMessage([fauxText("Recovered brief from page 1 (p. 1).")]),
+		]);
+		const result = await runPdfReaderAgent(
+			{ path: FIXTURE, question: "give an overview" },
+			{ engine },
+		);
+		assert.match(result.brief, /Recovered brief from page 1/);
+		assert.doesNotMatch(result.brief, /no brief text/);
+		assert.deepEqual(result.pagesRead, [1]);
+	});
+
 	it("spends one final no-tool-choice call on a partial brief instead of returning the limit failure", async () => {
 		const engine = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("pdf_info", {}, { id: "i1" })], { stopReason: "toolUse" }),

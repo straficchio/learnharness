@@ -80,6 +80,8 @@ const RENDER_BATCH_CAP = 6;
 const EXTRACT_CAP = 24_000;
 const BUDGET_MESSAGE =
 	"You have reached the reader's tool budget. Write the required brief NOW from the pages you actually consulted. Do not call tools. If the budget prevented full coverage, state that gap explicitly and list what remains unread. Keep the required format and page citations.";
+const CRASH_MESSAGE =
+	"The previous reading turn was interrupted by a provider error. Write the required brief NOW from the pages already consulted in this conversation. Do not call tools. State explicitly that the read was interrupted and name the pages or sections not covered. Keep the required format and page citations.";
 
 export interface PdfReaderOptions {
 	engine?: PiEngine;
@@ -233,7 +235,29 @@ export async function runPdfReaderAgent(
 	const read = new Set<number>();
 	let finalText = "";
 	let nudged = false;
+	let synthesisAttempted = false;
 	let captureError: unknown;
+
+	/** The same no-tools synthesis used by the budget path and by a reader
+	 *  crash: the pages already consulted are never discarded. */
+	const synthesize = async (message: string): Promise<string> => {
+		if (consulted.size === 0) return "";
+		synthesisAttempted = true;
+		const synthesis = await streamOnce(
+			streamEngine,
+			INSTRUCTIONS,
+			[...messages, { role: "user", content: message, timestamp: Date.now() }],
+			toolDeclarations,
+			sessionId,
+			reasoning,
+			opts.abortSignal,
+			opts.chatId ? providerEventObserver(opts.chatId, "job:pdfReader") : undefined,
+			capture,
+			"none",
+		);
+		opts.onUsage?.(synthesis.usage);
+		return assistantText(synthesis);
+	};
 
 	try {
 		for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -257,6 +281,11 @@ export async function runPdfReaderAgent(
 			);
 			if (toolCalls.length === 0) {
 				finalText = assistantText(result);
+				// A provider can end a turn with no tool call and no text after
+				// denying a native image read. That is not a brief; route it
+				// through the crash synthesis instead of delivering "(no brief
+				// text)" as if the read had completed.
+				if (!finalText) throw new Error("the reader returned no brief text");
 				// The gate stays on CONSULTED, not read: search-hit context
 				// lines are genuine consultation (anti-fabrication duty) — a
 				// search-only brief is honest. pagesRead is the UI's honest
@@ -269,7 +298,7 @@ export async function runPdfReaderAgent(
 					];
 					continue;
 				}
-				return { path: pdfPath, question: input.question, brief: finalText || "(no brief text)", pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
+				return { path: pdfPath, question: input.question, brief: finalText, pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
 			}
 
 			const toolResults: ToolResultMessage[] = [];
@@ -377,25 +406,24 @@ export async function runPdfReaderAgent(
 		// synthesis so the pages already consulted are not discarded. The
 		// prompt asks for an explicit gap statement; the result is a partial
 		// cited brief, never the "iteration limit" failure.
-		if (!finalText && consulted.size > 0) {
-			const synthesis = await streamOnce(
-				streamEngine,
-				INSTRUCTIONS,
-				[...messages, { role: "user", content: BUDGET_MESSAGE, timestamp: Date.now() }],
-				toolDeclarations,
-				sessionId,
-				reasoning,
-				opts.abortSignal,
-				opts.chatId ? providerEventObserver(opts.chatId, "job:pdfReader") : undefined,
-				capture,
-				"none",
-			);
-			opts.onUsage?.(synthesis.usage);
-			finalText = assistantText(synthesis);
-		}
+		if (!finalText) finalText = await synthesize(BUDGET_MESSAGE);
 	} catch (err) {
-		captureError = err;
 		const msg = err instanceof Error ? err.message : String(err);
+		// A provider/bridge crash after real consultation gets the same
+		// no-tools synthesis, so an interrupted read still yields a cited
+		// partial brief instead of throwing the work away. If the budget
+		// synthesis already failed, do not spend a second call on it.
+		if (!synthesisAttempted && !opts.abortSignal?.aborted) {
+			try {
+				const recovered = await synthesize(CRASH_MESSAGE);
+				if (recovered) {
+					return { path: pdfPath, question: input.question, brief: recovered, pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
+				}
+			} catch {
+				// The original crash is the honest failure cause below.
+			}
+		}
+		captureError = err;
 		return { path: pdfPath, question: input.question, brief: `PDF failed: the reader crashed — ${msg}`, pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
 	} finally {
 		capture?.finish(captureError);
@@ -406,7 +434,7 @@ export async function runPdfReaderAgent(
 	return {
 		path: pdfPath,
 		question: input.question,
-		brief: finalText || `PDF failed: iteration limit (${maxIterations}) reached without a brief.`,
+		brief: finalText || `PDF failed: the reader produced no brief text after ${maxIterations} reading steps.`,
 		pagesRead: [...read].sort((a, b) => a - b),
 		pagesConsulted: [...consulted].sort((a, b) => a - b),
 	};
