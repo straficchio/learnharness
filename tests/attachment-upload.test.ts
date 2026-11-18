@@ -17,11 +17,13 @@ class FakeXHR {
 	method = "";
 	url = "";
 	private readonly progress = new Set<ProgressListener>();
+	private readonly uploadLoad = new Set<() => void>();
 	private readonly load = new Set<() => void>();
 	private readonly fail = new Set<() => void>();
 	readonly upload = {
-		addEventListener: (type: string, listener: ProgressListener) => {
-			if (type === "progress") this.progress.add(listener);
+		addEventListener: (type: string, listener: ProgressListener | (() => void)) => {
+			if (type === "progress") this.progress.add(listener as ProgressListener);
+			if (type === "load") this.uploadLoad.add(listener as () => void);
 		},
 	};
 	open(method: string, url: string) {
@@ -40,6 +42,7 @@ class FakeXHR {
 			return;
 		}
 		for (const listener of this.progress) listener({ lengthComputable: true, loaded: 2, total: 4 });
+		for (const listener of this.uploadLoad) listener();
 		for (const listener of this.load) listener();
 	}
 }
@@ -62,7 +65,7 @@ test("uploadAttachment reports byte progress and returns the stored attachment",
 	const seen: UploadProgress[] = [];
 	const file = new File(["data"], "paper.pdf", { type: "application/pdf" });
 	const result = await uploadAttachment(file, "chat_1", (progress) => seen.push(progress));
-	assert.deepEqual(seen, [{ loaded: 2, total: 4 }]);
+	assert.deepEqual(seen, [{ loaded: 2, total: 4 }, { loaded: 4, total: 4 }]);
 	assert.deepEqual(result, { id: "a1", name: "paper.pdf", path: "/tmp/paper.pdf", size: 4 });
 	assert.equal(FakeXHR.last?.method, "POST");
 	assert.equal(FakeXHR.last?.url, "/api/attachments");

@@ -150,6 +150,14 @@ test("unfocused drop uses the dictation target registry, not the last focused ed
 	f.assertPathOnly();
 });
 
+test("an early drag without type metadata shows a neutral message, never a refusal", async () => {
+	const f = await fixture({ desktop: false });
+	await f.event("dragenter", f.transfer([]));
+	const indicator = f.doc.querySelector('[data-testid="file-path-drop-indicator"]')!.textContent!;
+	assert.match(indicator, /Drop to attach to LearnHarness/);
+	assert.doesNotMatch(indicator, /can't be uploaded/);
+});
+
 test("browser drop prevents navigation, explains desktop-only local paths and never infers File.name", async () => {
 	const f = await fixture({ desktop: false });
 	const transfer = f.transfer([f.file("/not/a/backing/path.png")]);

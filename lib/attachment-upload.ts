@@ -29,6 +29,10 @@ export function uploadAttachment(
 		request.upload.addEventListener("progress", (event) => {
 			if (event.lengthComputable) onProgress?.({ loaded: event.loaded, total: event.total });
 		});
+		// `progress` may stop just short of the final byte in some browsers.
+		// The upload `load` event is the authoritative "bytes sent" boundary,
+		// and lets the UI switch to its server-write ("Saving") phase.
+		request.upload.addEventListener("load", () => onProgress?.({ loaded: file.size, total: file.size }));
 		request.addEventListener("error", () => reject(new Error(`Could not attach ${file.name}. Check the connection and try again.`)));
 		request.addEventListener("abort", () => reject(new Error(`Upload of ${file.name} was cancelled.`)));
 		request.addEventListener("load", () => {

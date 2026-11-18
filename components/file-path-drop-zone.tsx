@@ -10,13 +10,16 @@ import { uploadAttachment } from "@/lib/attachment-upload.ts";
 import { ATTACHMENT_MAX_FILES, attachmentPathsIn, isAttachableDocument } from "@/lib/attachment-limits.ts";
 
 const BROWSER_NOTICE = "Only PDF and text documents can be uploaded from this browser. Other local files need the desktop app.";
-type DragKind = "documents" | "mixed" | "other";
+type DragKind = "documents" | "mixed" | "other" | "unknown";
 
 function isDirectoryItem(item: DataTransferItem): boolean {
 	try { return item.webkitGetAsEntry?.()?.isDirectory === true; } catch { return false; }
 }
 
 function classifyTransfer(dataTransfer: DataTransfer): DragKind {
+	// During the first dragenter some browsers expose no item metadata yet.
+	// "unknown" is deliberately neutral: never claim a file cannot upload
+	// until the MIME type or extension is actually available.
 	let docs = 0;
 	let other = 0;
 	const items = Array.from(dataTransfer.items).filter((item) => item.kind === "file");
@@ -32,14 +35,21 @@ function classifyTransfer(dataTransfer: DataTransfer): DragKind {
 		if (file) {
 			if (isAttachableDocument(file)) docs++;
 			else other++;
-		} else if (isAttachableDocument({ name: entryName, type: item.type })) docs++;
-		else other++;
+		} else if (entryName || item.type) {
+			if (isAttachableDocument({ name: entryName, type: item.type })) docs++;
+			else other++;
+		}
 	}
+	if (docs === 0 && other === 0) return "unknown";
 	if (docs > 0 && other > 0) return "mixed";
 	return docs > 0 ? "documents" : "other";
 }
 
 function dragMessage(kind: DragKind | null, desktop: boolean): { title: string; detail: string } {
+	if (kind === null || kind === "unknown") return {
+		title: "Drop to attach to LearnHarness",
+		detail: "PDF and text documents upload; other local files need the desktop app.",
+	};
 	if (kind === "documents") return {
 		title: "Drop to upload PDF/text to LearnHarness",
 		detail: "The model reads the uploaded copy — no local path needed.",
@@ -63,15 +73,18 @@ function dragMessage(kind: DragKind | null, desktop: boolean): { title: string; 
 export function FilePathDropZone({ children, className, inert = false, attachmentChatId }: { children: React.ReactNode; className?: string; inert?: boolean; attachmentChatId?: string }) {
 	const root = useRef<HTMLElement>(null);
 	const depth = useRef(0);
+	const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [dragging, setDragging] = useState(false);
 	const [dragKind, setDragKind] = useState<DragKind | null>(null);
 	const [notice, setNotice] = useState("");
+	const [showDropProgress, setShowDropProgress] = useState(false);
 	const [dropProgress, setDropProgress] = useState<{
 		index: number;
 		total: number;
 		name: string;
 		loaded: number;
 		totalBytes: number;
+		phase: "uploading" | "saving";
 	} | null>(null);
 	const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes("Files");
 	const clearDrag = () => { depth.current = 0; setDragging(false); setDragKind(null); };
@@ -80,6 +93,7 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 	const progressPercent = dropProgress
 		? Math.min(100, Math.round((dropProgress.loaded / Math.max(1, dropProgress.totalBytes)) * 100))
 		: 0;
+	const dropSaving = dropProgress?.phase === "saving";
 	const dropFiles = async (event: React.DragEvent<HTMLElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
@@ -102,16 +116,30 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 		let limitSkipped = 0;
 		let firstError: string | null = null;
 		setNotice("");
+		setShowDropProgress(false);
+		if (progressTimer.current) clearTimeout(progressTimer.current);
+		if (allowedDocs > 0) {
+			// A loopback upload completes in well under a frame or two. Delay
+			// the modal so fast attachments do not flash a 0→100 card; once
+			// it is visible, the byte count and the server-write phase are
+			// both reported truthfully.
+			progressTimer.current = setTimeout(() => setShowDropProgress(true), 250);
+		}
 		try {
 			for (const [index, file] of files.entries()) {
 				if (directoryFlags[index]) { skipped++; continue; }
 				if (isAttachableDocument(file)) {
 					if (attachedDocs >= allowedDocs) { skipped++; limitSkipped++; continue; }
-					setDropProgress({ index: attachedDocs + 1, total: allowedDocs, name: file.name, loaded: 0, totalBytes: file.size });
+					setDropProgress({ index: attachedDocs + 1, total: allowedDocs, name: file.name, loaded: 0, totalBytes: file.size, phase: "uploading" });
 					try {
 						const attachment = await uploadAttachment(file, attachmentChatId, ({ loaded, total }) => {
 							setDropProgress((current) => current
-								? { ...current, loaded, totalBytes: total > 0 ? total : current.totalBytes }
+								? {
+									...current,
+									loaded,
+									totalBytes: total > 0 ? total : current.totalBytes,
+									phase: total > 0 && loaded >= total ? "saving" : "uploading",
+								}
 								: current);
 						});
 						paths.push(attachment.path);
@@ -153,9 +181,15 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 				: "Some dropped items were not attached.");
 			else setNotice("");
 		} finally {
+			if (progressTimer.current) clearTimeout(progressTimer.current);
+			progressTimer.current = null;
+			setShowDropProgress(false);
 			setDropProgress(null);
 		}
 	};
+	useEffect(() => () => {
+		if (progressTimer.current) clearTimeout(progressTimer.current);
+	}, []);
 	useEffect(() => {
 		// The sidebar remains a non-target, but dropping a file there must not
 		// navigate the app away. No indicator or attachment is produced there.
@@ -216,7 +250,7 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 					</div>
 				</div>
 			)}
-			{dropProgress && (
+			{showDropProgress && dropProgress && (
 				<div
 					role="dialog"
 					aria-modal="true"
@@ -227,18 +261,29 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 					<div className="w-full max-w-sm rounded-xl border bg-card p-5 shadow-2xl">
 						<div className="flex items-baseline justify-between gap-3">
 							<p id="lh-attachment-upload-title" className="text-sm font-medium">
-								Uploading {dropProgress.index} of {dropProgress.total}
+								{dropSaving ? "Saving" : "Uploading"} {dropProgress.index} of {dropProgress.total}
 							</p>
-							<span className="text-sm tabular-nums text-muted-foreground">{progressPercent}%</span>
+							<span className="text-sm tabular-nums text-muted-foreground">
+								{dropSaving ? "Saving…" : `${progressPercent}%`}
+							</span>
 						</div>
 						<p className="mt-1 truncate text-xs text-muted-foreground">{dropProgress.name}</p>
 						<div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-							<div
-								className="h-full rounded-full bg-primary transition-[width] duration-150"
-								style={{ width: `${progressPercent}%` }}
-							/>
+							{dropSaving ? (
+								<div className="h-full w-full animate-pulse rounded-full bg-primary/60" aria-hidden="true" />
+							) : (
+								<div
+									className="h-full rounded-full bg-primary transition-[width] duration-150"
+									style={{ width: `${progressPercent}%` }}
+									aria-hidden="true"
+								/>
+							)}
 						</div>
-						<p className="mt-2 text-[11px] text-muted-foreground">Transferring the document copy to LearnHarness…</p>
+						<p className="mt-2 text-[11px] text-muted-foreground">
+							{dropSaving
+								? "Upload received — saving the document copy on the server…"
+								: "Transferring the document copy to LearnHarness…"}
+						</p>
 					</div>
 				</div>
 			)}
