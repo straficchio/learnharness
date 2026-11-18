@@ -54,9 +54,11 @@ test("seeds only the agy OAuth token into the isolated home", async (t) => {
 	assert.equal(statSync(isolated).mode & 0o777, 0o600);
 	assert.equal(readFileSync(backupFile(source), "utf8"), "source-token");
 	assert.equal(statSync(backupFile(source)).mode & 0o777, 0o600);
-	assert.deepEqual(
-		JSON.parse(readFileSync(join(files.home, ".gemini", "antigravity-cli", "settings.json"), "utf8")),
-		{ permissions: { allow: ["mcp(learnharness/*)"] } },
+	const isolatedSettings = JSON.parse(readFileSync(join(files.home, ".gemini", "antigravity-cli", "settings.json"), "utf8"));
+	assert.equal(isolatedSettings.permissions.allow[0], "mcp(learnharness/*)");
+	assert.equal(
+		isolatedSettings.permissions.allow.filter((entry: string) => /^(?:read|view)_file\(.*private\/images\)$/.test(entry)).length,
+		4,
 	);
 	assert.equal(existsSync(join(files.home, ".gemini", "settings.json")), false);
 	assert.notEqual(files.home, source);

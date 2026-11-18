@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -197,7 +197,8 @@ function splitPrompt(text: string, maxBytes = RULE_CHUNK_BYTES): string[] {
 }
 
 function gateScript(): string {
-	return `import path from "node:path";
+	return `import fs from "node:fs";
+import path from "node:path";
 let input = "";
 process.stdin.setEncoding("utf8");
 for await (const chunk of process.stdin) input += chunk;
@@ -209,12 +210,27 @@ try {
 	args = value.toolCall?.args ?? {};
 } catch {}
 const allowMcp = typeof name === "string" && name.startsWith("mcp_learnharness_");
+// macOS /var is a symlink to /private/var. The CLI sometimes reports the
+// resolved path while LH_AGY_IMAGE_DIR is the mkdtemp path (or vice versa);
+// compare canonical paths so the same file never fails the gate by spelling.
+function canonical(value) {
+	const resolved = path.resolve(value);
+	try {
+		return fs.realpathSync.native(resolved);
+	} catch {
+		try {
+			return path.join(fs.realpathSync.native(path.dirname(resolved)), path.basename(resolved));
+		} catch {
+			return resolved;
+		}
+	}
+}
 let allowImage = false;
 const imageDir = process.env.LH_AGY_IMAGE_DIR;
 if (imageDir && (name === "read_file" || name === "view_file")) {
 	const candidate = args.Path ?? args.AbsolutePath ?? args.path ?? args.file_path;
 	if (typeof candidate === "string") {
-		const relative = path.relative(path.resolve(imageDir), path.resolve(candidate));
+		const relative = path.relative(canonical(imageDir), canonical(candidate));
 		allowImage = relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 	}
 }
@@ -271,6 +287,19 @@ export async function createAgyTurnFiles(input: {
 		const gate = join(privateDir, "gate.mjs");
 		await writeFile(gate, gateScript(), { mode: PRIVATE_FILE_MODE });
 
+		// macOS resolves /var to /private/var. The CLI's permission matcher
+		// compares the resolved read path against these grants literally, and
+		// some reads arrive with the resolved spelling. Grant both so a
+		// rendered image is never denied by path spelling alone; the
+		// PreToolUse gate below remains the real boundary.
+		const imageDirReal = await realpath(imageDir).catch(() => imageDir);
+		const readGrants = [
+			`read_file(${imageDir})`,
+			`read_file(${imageDirReal})`,
+			`view_file(${imageDir})`,
+			`view_file(${imageDirReal})`,
+		];
+
 		await Promise.all([
 			writeFile(join(configDir, "mcp_config.json"), JSON.stringify({
 				mcpServers: {
@@ -298,7 +327,7 @@ export async function createAgyTurnFiles(input: {
 			// as a denial. Allow the harness namespace; the PreToolUse hook above
 			// remains the independent gate for every native CLI tool.
 			writePrivateFile(join(cliDir, "settings.json"), Buffer.from(`${JSON.stringify({
-				permissions: { allow: [HARNESS_MCP_PERMISSION] },
+				permissions: { allow: [HARNESS_MCP_PERMISSION, ...readGrants] },
 			}, null, "\t")}\n`)),
 		]);
 

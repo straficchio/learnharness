@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -205,7 +205,9 @@ test("text scenario streams agent-response deltas and per-step usage, not the cu
 	assert.equal(readFileSync(join(calls[0]!.env.HOME!, ".gemini", "config", "hooks.json"), "utf8").includes("PreToolUse"), true);
 	const cliSettingsFile = join(calls[0]!.env.HOME!, ".gemini", "antigravity-cli", "settings.json");
 	const cliSettings = JSON.parse(readFileSync(cliSettingsFile, "utf8"));
-	assert.deepEqual(cliSettings.permissions.allow, ["mcp(learnharness/*)"]);
+	assert.equal(cliSettings.permissions.allow[0], "mcp(learnharness/*)");
+	const imageGrants = cliSettings.permissions.allow.filter((entry: string) => /^(?:read|view)_file\(.*private\/images\)$/.test(entry));
+	assert.equal(imageGrants.length, 4, "both read/view tools grant both path spellings");
 	assert.equal(statSync(cliSettingsFile).mode & 0o777, 0o600);
 	const rulesDir = join(calls[0]!.env.HOME!, ".gemini", "config", "rules");
 	const preamble = readFileSync(join(rulesDir, "00-tool-bridge.md"), "utf8");
@@ -347,6 +349,30 @@ test("image reads are allowed only inside the turn's image directory", async (t)
 	const home = calls[0]!.env.HOME!;
 	const imagePath = join(home, "private", "images", "image-0.png");
 	assert.equal(existsSync(imagePath), true);
+});
+
+test("the image gate compares canonical paths, so symlinked temp spellings stay allowed", async (t) => {
+	const { runAgy, calls } = createFakeRun(t, [
+		JSON.stringify({ fake: "text", stepIndex: 1, text: "ok" }),
+		JSON.stringify({ fake: "result", status: "SUCCESS", response: "ok" }),
+	]);
+	await runTurn(runAgy, [HI]);
+	const home = calls[0]!.env.HOME!;
+	const imageDir = join(home, "private", "images");
+	writeFileSync(join(imageDir, "image-0.png"), "pixels");
+	// /var is a symlink to /private/var on macOS; the CLI can report either
+	// spelling. A symlinked alias reproduces the same mismatch on every OS.
+	const alias = join(home, "private", "images-alias");
+	symlinkSync(imageDir, alias);
+	const gate = join(home, "private", "gate.mjs");
+	const decide = (candidate: string) => JSON.parse(execFileSync(process.execPath, [gate], {
+		input: JSON.stringify({ toolCall: { name: "read_file", args: { Path: candidate } } }),
+		env: { ...process.env, LH_AGY_IMAGE_DIR: alias },
+		encoding: "utf8",
+	})).decision as string;
+	assert.equal(decide(join(imageDir, "image-0.png")), "allow");
+	assert.equal(decide(join(alias, "image-0.png")), "allow");
+	assert.equal(decide(join(alias, "..", "..", "..", "etc", "passwd")), "deny");
 });
 
 test("deleting the image directory path is not enough: traversal outside it fails closed", async (t) => {
