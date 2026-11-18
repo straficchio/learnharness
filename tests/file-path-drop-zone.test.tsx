@@ -161,8 +161,8 @@ test("browser drop prevents navigation, explains desktop-only local paths and ne
 	assert.equal(transfer.dropEffect, "copy");
 	const drop = await f.event("drop", transfer);
 	assert.equal(drop.defaultPrevented, true);
-	assert.match(f.status, /PDF and text documents upload here/);
-	assert.match(f.status, /Other local file paths need the desktop app/);
+	assert.match(f.status, /Only PDF and text documents can be uploaded from this browser/);
+	assert.match(f.status, /Other local files need the desktop app/);
 	assert.equal(f.doc.querySelector('[data-testid="file-path-drop-indicator"]'), null);
 	assert.equal(f.value, "readthis");
 	assert.deepEqual(f.appends, []);
