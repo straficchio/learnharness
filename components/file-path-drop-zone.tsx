@@ -99,13 +99,14 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 		let attachedDocs = 0;
 		let skipped = 0;
 		let failed = 0;
+		let limitSkipped = 0;
 		let firstError: string | null = null;
 		setNotice("");
 		try {
 			for (const [index, file] of files.entries()) {
 				if (directoryFlags[index]) { skipped++; continue; }
 				if (isAttachableDocument(file)) {
-					if (attachedDocs >= allowedDocs) { skipped++; continue; }
+					if (attachedDocs >= allowedDocs) { skipped++; limitSkipped++; continue; }
 					setDropProgress({ index: attachedDocs + 1, total: allowedDocs, name: file.name, loaded: 0, totalBytes: file.size });
 					try {
 						const attachment = await uploadAttachment(file, attachmentChatId, ({ loaded, total }) => {
@@ -133,7 +134,9 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 			if (paths.length === 0) {
 				setNotice(firstError ?? (failed > 0
 					? "Could not upload the dropped document."
-					: desktop ? (skipped > 0 ? "No local file paths were available. Drop existing files from your computer." : "") : BROWSER_NOTICE));
+					: limitSkipped > 0
+						? `You can attach up to ${ATTACHMENT_MAX_FILES} documents to one message.`
+						: desktop ? (skipped > 0 ? "No local file paths were available. Drop existing files from your computer." : "") : BROWSER_NOTICE));
 				return;
 			}
 			const focused = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
@@ -144,6 +147,7 @@ export function FilePathDropZone({ children, className, inert = false, attachmen
 				return;
 			}
 			if (failed > 0) setNotice(firstError ?? "Some documents could not be uploaded.");
+			else if (limitSkipped > 0) setNotice(`You can attach up to ${ATTACHMENT_MAX_FILES} documents to one message.`);
 			else if (skipped > 0) setNotice(kind === "mixed" && !desktop
 				? "PDF/text uploaded; other files need the desktop app."
 				: "Some dropped items were not attached.");
