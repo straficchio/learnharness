@@ -95,3 +95,4 @@ export * from "./session-transfer.ts";
 // session-bundle.ts (2026-11-22): the attachment-aware transfer layer —
 // portable path placeholders, manifest validation, exact-path rewriting.
 export * from "./session-bundle.ts";
+export * from "./markdown-repair.ts";

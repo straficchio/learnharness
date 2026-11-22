@@ -34,7 +34,7 @@ import {
   type PluginConfig,
 } from "streamdown";
 import { mdComponents } from "@/components/md-blocks";
-import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
+import { repairMathForDisplay, repairMermaidFenceClosers, transformMathDelimiters } from "@/src/core";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: LhViewMessage["role"];
@@ -365,9 +365,12 @@ export const MessageResponse = memo(
     // Legacy backslash delimiters are converted in a single linear scan;
     // native dollar math passes through to Streamdown unchanged. Incomplete
     // legacy spans are left for a later render when their closer arrives.
+    // The fence repair is display-only: it fixes a Mermaid closer that the
+    // model wrote with prose still on the same line, so the chart and the
+    // prose both render instead of the chart swallowing the rest.
     const content =
       typeof children === "string"
-        ? transformMathDelimiters(children)
+        ? transformMathDelimiters(repairMermaidFenceClosers(children))
         : children;
 
     return (
