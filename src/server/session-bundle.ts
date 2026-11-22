@@ -37,7 +37,7 @@ import {
 	type SessionBundleManifest,
 } from "../core/session-bundle.ts";
 import { MAX_SESSION_IMPORT_BYTES, buildSessionExport, parseSessionExport, sessionExportFilename } from "../core/session-transfer.ts";
-import { ATTACHMENT_MAX_BYTES } from "../../lib/attachment-limits.ts";
+import { ATTACHMENT_MAX_BYTES, isAttachableDocument } from "../../lib/attachment-limits.ts";
 import { PATHS, isAttachmentPath } from "../../config.ts";
 import { removeStoredAttachment, storeAttachment } from "./attachments.ts";
 import { importSessionRecord } from "./session-transfer.ts";
@@ -78,7 +78,7 @@ async function classifyAttachment(candidate: string): Promise<{ id: string; entr
 		const stat = await fs.stat(real);
 		if (!stat.isFile() || stat.size === 0 || stat.size > ATTACHMENT_MAX_BYTES) return null;
 		const parts = attachmentParts(real);
-		if (!parts) return null;
+		if (!parts || !isAttachableDocument({ name: parts.name })) return null;
 		return {
 			id: parts.id,
 			entry: bundleAttachmentEntry(parts.id, parts.name),
