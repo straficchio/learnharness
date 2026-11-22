@@ -113,6 +113,23 @@ LearnHarness included in the conversation: use \`read_file\` or \`view_file\`
 only for those image paths. If a call is blocked, retry the same action with its
 \`mcp_learnharness_\` name.`;
 
+/** A short-lived home carrying the CLI's credential file. Model discovery
+ *  uses it because the server process's real `agy` login may have moved to
+ *  the macOS keyring (or been removed), while LearnHarness's backup token
+ *  still authenticates a headless listing. */
+export async function createAgyCredentialHome(credentialHome?: string): Promise<{ home: string; cleanup: () => Promise<void> }> {
+	const home = await mkdtemp(join(tmpdir(), "agy-credential-"));
+	await mkdir(join(home, "appdata"), { recursive: true, mode: PRIVATE_DIR_MODE });
+	const seeded = await seedCredential(home, credentialHome);
+	return {
+		home,
+		cleanup: async () => {
+			if (seeded) await syncCredential(home, seeded).catch(() => undefined);
+			await rm(home, { recursive: true, force: true });
+		},
+	};
+}
+
 export type AgyMcpConfig = {
 	url: string;
 	headers: Record<string, string>;

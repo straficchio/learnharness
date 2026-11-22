@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
 import { externalCliEnv } from "../../core/auth-env.ts";
 import { ANTIGRAVITY_CLI_API, AGY_DEFAULT_MODEL_ID } from "./constants.ts";
 import { ANTIGRAVITY_CLI_PROVIDER } from "../../core/contracts/antigravity-cli.ts";
 import { getAgyBinary } from "./binary.ts";
+import { agyChildEnv, createAgyCredentialHome, type AgyTurnFiles } from "./session-files.ts";
 
 const MODEL_LIST_TIMEOUT_MS = 10_000;
 const MODEL_LIST_CACHE_MS = 5 * 60_000;
@@ -27,18 +29,31 @@ const DEFAULT_MODEL: AgyModelDescriptor = {
 	efforts: [],
 };
 
-/** No shell; model listing is read-only and never authenticates a session. */
-export const listAgyModels: DiscoverAgyModels = () => new Promise((resolve, reject) => {
+/** No shell; model listing is read-only and never authenticates a session.
+ *  The CLI runs against a temporary home seeded from LearnHarness's saved
+ *  credential, so a GUI login that moved the token into the keyring does not
+ *  silently reduce the picker to the CLI-default entry. */
+export const listAgyModels: DiscoverAgyModels = async () => {
 	const binary = getAgyBinary();
-	if (!binary) {
-		reject(new Error("agy CLI not found"));
-		return;
+	if (!binary) throw new Error("agy CLI not found");
+	const credentialHome = process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+	const { home, cleanup } = await createAgyCredentialHome(credentialHome);
+	try {
+		const files = {
+			home,
+			appDataDir: join(home, "appdata"),
+			imageDir: join(home, "private", "images"),
+		} as AgyTurnFiles;
+		return await new Promise<string>((resolve, reject) => {
+			execFile(binary, ["models"], {
+				cwd: tmpdir(), env: agyChildEnv(externalCliEnv(), files), windowsHide: true,
+				timeout: MODEL_LIST_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: MODEL_LIST_MAX_BUFFER,
+			}, (error, stdout) => error ? reject(error) : resolve(stdout));
+		});
+	} finally {
+		await cleanup();
 	}
-	execFile(binary, ["models"], {
-		cwd: tmpdir(), env: externalCliEnv(), windowsHide: true,
-		timeout: MODEL_LIST_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: MODEL_LIST_MAX_BUFFER,
-	}, (error, stdout) => error ? reject(error) : resolve(stdout));
-});
+};
 
 function effortFromLabel(label: string): Effort | null {
 	const match = /\((low|medium|high|xhigh|max)\)\s*$/i.exec(label);
