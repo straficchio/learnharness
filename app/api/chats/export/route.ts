@@ -1,10 +1,12 @@
 /**
  * POST /api/chats/export — the bulk ZIP export.
  *
- * Each entry is the same lossless JSON the single-session export produces;
- * the UI sends the ids of the currently selected sessions. Missing ids are
- * skipped (a selection can race a deletion), and a selection with no live
- * records is a 404. The archive is built in memory and never touches disk.
+ * The archive carries the same lossless JSON as the single-session route.
+ * When any selected session has app-managed attachment copies that can be
+ * bundled, the ZIP also carries the bundle manifest and those copies;
+ * otherwise it stays the original JSON-only archive. The UI sends the ids
+ * of the currently selected sessions. Missing ids are skipped (a selection
+ * can race a deletion), and a selection with no live records is a 404.
  */
 import { strToU8, zipSync } from "fflate";
 import {
@@ -13,8 +15,14 @@ import {
 	MAX_BULK_EXPORT_SESSIONS,
 	sessionExportFilename,
 } from "@/src/core";
-import { getChat } from "@/src/server";
-import { withUser } from "@/src/server";
+import {
+	buildSessionBundleZip,
+	getChat,
+	hasBundleAttachments,
+	prepareSessionForExport,
+	SessionBundleError,
+	withUser,
+} from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -43,24 +51,37 @@ async function POSTHandler(req: Request): Promise<Response> {
 		);
 	}
 
-	const entries: Record<string, Uint8Array> = {};
-	for (const id of ids) {
-		const record = getChat(id);
-		if (!record) continue;
-		entries[sessionExportFilename(record)] = strToU8(JSON.stringify(buildSessionExport(record), null, "\t"));
-	}
-	if (Object.keys(entries).length === 0) {
-		return Response.json({ error: "No selected sessions exist." }, { status: 404 });
-	}
+	const records = ids.map((id) => getChat(id)).filter((record) => record !== null);
+	if (records.length === 0) return Response.json({ error: "No selected sessions exist." }, { status: 404 });
 
-	const archive = zipSync(entries);
-	return new Response(archive, {
-		headers: {
-			"content-type": "application/zip",
-			"content-disposition": `attachment; filename="${bulkSessionExportFilename()}"`,
-			"cache-control": "no-store",
-		},
-	});
+	try {
+		const prepared = await Promise.all(records.map((record) => prepareSessionForExport(record)));
+		if (hasBundleAttachments(prepared)) {
+			const bundle = await buildSessionBundleZip(prepared);
+			return new Response(bundle.bytes as unknown as BodyInit, {
+				headers: {
+					"content-type": "application/zip",
+					"content-disposition": `attachment; filename="${bulkSessionExportFilename()}"`,
+					"cache-control": "no-store",
+				},
+			});
+		}
+		const entries: Record<string, Uint8Array> = {};
+		for (const item of prepared) {
+			entries[sessionExportFilename(item.record)] = strToU8(JSON.stringify(buildSessionExport(item.record), null, "\t"));
+		}
+		const archive = zipSync(entries);
+		return new Response(archive, {
+			headers: {
+				"content-type": "application/zip",
+				"content-disposition": `attachment; filename="${bulkSessionExportFilename()}"`,
+				"cache-control": "no-store",
+			},
+		});
+	} catch (error) {
+		if (error instanceof SessionBundleError) return Response.json({ error: error.message }, { status: error.status });
+		throw error;
+	}
 }
 
 export const POST = withUser(POSTHandler);

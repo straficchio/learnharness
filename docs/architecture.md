@@ -154,6 +154,14 @@ The extractor alone reads source material and submits propositions plus jointly-
 
 `mergeFindings` resolves those links, appends proposition phrasings/provenance, resolves chain endpoints and deduplicates identical arguments under an `arg_` identity. Its whole-ledger simplification pass removes redundant same-conclusion chains using premise-set and ancestry rules. Coverage checkpoints come after graph appends; layout settles after merge. A failed pre-merge stage leaves the batch uncovered. Earlier successful batches survive later failures/abort; ordinary batch failures are isolated, while a source-wide abort stops subsequent batches. Usage is retained for failed jobs too. These are ordered file operations, not an atomic multi-ledger transaction: a disk failure after some appends need not roll back the graph.
 
+### Session transfer and attachment bundles
+
+Session export is the lossless `ChatRecord` wrapper plus, when the session names app-managed attachment copies in the active user's root, a ZIP bundle. The bundle carries a manifest, the session JSON under `sessions/`, and the copies under `attachments/<uuid>/<name>`. Bulk export includes attachments once and shares the archived copy across sessions.
+
+Portable exports never carry an attachment's absolute path: the session JSON holds `attachment-ref:<uuid>/<name>` tokens and the manifest maps those tokens to archived copies. A path chip the user typed or dropped but never uploaded becomes `[local file not included: <name>]`; an app-managed copy that is missing or belongs to another user's root becomes `[attachment unavailable: <name>]`. Teacher prose and tool output keep paths that are content (code samples, error text), not file references. Markdown export uses the same reference-only policy.
+
+Import accepts the original session JSON, the original JSON-only bulk ZIP, and the new bundle ZIP. A bundle restores each unique copy under the importing user's root with a new UUID and rewrites every exact path spelling in the session record before the normal import gate. A failed or conflicting session rolls back copies no successful session used. The current transfer ceilings are 25 MiB for a single session JSON, 250 MiB compressed for a ZIP, 500 entries, and 500 MiB expanded.
+
 ### Notes imports and retry
 
 `POST /api/graph/import` accepts text and PDF notes and uses the same extractor/auditor/merger, with notes-specific prompts and no message-anchor requirement. Source identity remains a hash of the supplied file path/name. The optional multipart `paths` entries preserve safe folder-relative paths, matched to each uploaded filename; without them the route uses `File.name`. Changing the picked path changes source identity; changing a display name or organizational placement does not. Identical names do not become different sources just because their upload positions differ.

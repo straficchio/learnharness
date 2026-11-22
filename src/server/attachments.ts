@@ -171,6 +171,12 @@ async function deleteAttachment(root: string, id: string): Promise<boolean> {
 	}
 }
 
+/** Remove one app-managed copy by id. The transfer importer uses this for
+ *  rollback when a bundle session cannot be restored after its files landed. */
+export async function removeStoredAttachment(id: string): Promise<boolean> {
+	return deleteAttachment(attachmentRoot(), id);
+}
+
 export interface AttachmentSweepStats {
 	deleted: number;
 	kept: number;

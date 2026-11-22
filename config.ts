@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { scopeRoot } from "./src/core/request-scope.ts";
@@ -64,11 +65,22 @@ export function attachmentsRootFor(root: string): string {
  *  exception to the file-tool data-root/credential guard — realpath is
  *  checked separately by resolveAllowedPath, so a symlink cannot escape. */
 export function isAttachmentPath(candidate: string): boolean {
+	const under = (target: string, root: string): boolean => {
+		const normalizedTarget = process.platform === "win32" ? target.toLowerCase() : target;
+		const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
+		return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`);
+	};
 	const resolved = path.resolve(candidate);
-	const target = process.platform === "win32" ? resolved.toLowerCase() : resolved;
 	const root = path.resolve(PATHS.attachments);
-	const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
-	return target === normalizedRoot || target.startsWith(`${normalizedRoot}${path.sep}`);
+	if (under(resolved, root)) return true;
+	// macOS /var is a symlink to /private/var. A realpath'd copy must still be
+	// recognized as an attachment path (the portable-export collector and the
+	// file tools both check the realpath).
+	try {
+		return under(realpathSync.native(resolved), realpathSync.native(root));
+	} catch {
+		return false;
+	}
 }
 
 /** The server-wide account registry (hashes live here, never in chat data). */

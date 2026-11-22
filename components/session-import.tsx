@@ -13,7 +13,7 @@ import { UploadIcon } from "lucide-react";
 import { MAX_BULK_IMPORT_BYTES, MAX_SESSION_IMPORT_BYTES } from "@/src/core";
 
 export type SessionImportOutcome =
-	| { ok: true; id: string; title: string; replaced: boolean }
+	| { ok: true; id: string; title: string; replaced: boolean; notices: string[] }
 	| { ok: false; code?: string; error: string; id?: string; title?: string };
 
 interface ImportBody {
@@ -23,6 +23,11 @@ interface ImportBody {
 	replaced?: unknown;
 	error?: unknown;
 	code?: unknown;
+	notices?: unknown;
+}
+
+function stringList(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 /** The transport seam, exported for tests. `fetchImpl` defaults to fetch. */
@@ -44,6 +49,7 @@ export async function importSessionText(
 				id: body.id,
 				title: typeof body.title === "string" ? body.title : "Imported session",
 				replaced: body.replaced === true,
+				notices: stringList(body.notices),
 			};
 		}
 		const error = typeof body?.error === "string" && body.error.trim() ? body.error : `Import failed (${res.status}).`;
@@ -78,6 +84,7 @@ export interface ZipImportResult {
 	replaced: ImportedSessionSummary[];
 	conflicts: ImportedSessionSummary[];
 	failures: ZipImportFailure[];
+	notices: string[];
 }
 
 export type ZipImportOutcome =
@@ -140,6 +147,7 @@ export async function importSessionZip(
 							...(typeof entry.code === "string" ? { code: entry.code } : {}),
 						}))
 				: [],
+			notices: stringList(body.notices),
 		};
 	} catch {
 		return { ok: false, error: "Could not reach the server." };
@@ -156,6 +164,7 @@ export function SessionImportButton({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [notice, setNotice] = useState<string | null>(null);
 	const [pending, setPending] = useState<{ text: string; id: string; title: string } | null>(null);
 	const [zipSource, setZipSource] = useState<ArrayBuffer | null>(null);
 	const [zipResult, setZipResult] = useState<ZipImportResult | null>(null);
@@ -163,12 +172,14 @@ export function SessionImportButton({
 	async function send(text: string, replace: boolean) {
 		setBusy(true);
 		setError(null);
+		setNotice(null);
 		const outcome = await importSessionText(text, { replace });
 		setBusy(false);
 		if (outcome.ok) {
 			setPending(null);
 			setZipResult(null);
 			setZipSource(null);
+			setNotice(outcome.notices.length > 0 ? outcome.notices.join(" ") : null);
 			onImported(outcome.id);
 			return;
 		}
@@ -186,14 +197,27 @@ export function SessionImportButton({
 	async function sendZip(bytes: ArrayBuffer, replace: boolean) {
 		setBusy(true);
 		setError(null);
+		setNotice(null);
 		const outcome = await importSessionZip(bytes, { replace });
 		setBusy(false);
 		if (!outcome.ok) {
 			setError(outcome.error);
 			return;
 		}
+		const total = outcome.imported.length + outcome.replaced.length;
+		// A single-session bundle behaves like the JSON import: open it
+		// instead of leaving the user in a one-row summary.
+		if (total === 1 && outcome.conflicts.length === 0 && outcome.failures.length === 0) {
+			const only = outcome.imported[0] ?? outcome.replaced[0];
+			if (only) {
+				setZipResult(null);
+				setZipSource(null);
+				onImported(only.id);
+				return;
+			}
+		}
 		setZipResult(outcome);
-		if (outcome.imported.length > 0 || outcome.replaced.length > 0) onBulkImported?.();
+		if (total > 0) onBulkImported?.();
 	}
 
 	async function choose(event: React.ChangeEvent<HTMLInputElement>) {
@@ -201,6 +225,7 @@ export function SessionImportButton({
 		event.target.value = ""; // allow re-picking the same file
 		if (!file) return;
 		setError(null);
+		setNotice(null);
 		setPending(null);
 		setZipResult(null);
 		const isZip = file.name.toLowerCase().endsWith(".zip") || file.type === "application/zip";
@@ -245,6 +270,11 @@ export function SessionImportButton({
 			{error && (
 				<p role="alert" data-testid="import-session-error" className="px-2 text-xs text-red-400">
 					{error}
+				</p>
+			)}
+			{notice && (
+				<p role="status" data-testid="import-session-notice" className="px-2 text-xs text-muted-foreground">
+					{notice}
 				</p>
 			)}
 			{pending && (
@@ -303,6 +333,12 @@ export function SessionImportButton({
 						>
 							Replace all conflicts
 						</button>
+					)}
+					{zipResult.notices.length > 0 && (
+						<ul className="mt-1 text-muted-foreground">
+							{zipResult.notices.slice(0, 3).map((line) => <li key={line}>{line}</li>)}
+							{zipResult.notices.length > 3 && <li>and {zipResult.notices.length - 3} more…</li>}
+						</ul>
 					)}
 					{zipResult.failures.length > 0 && (
 						<ul className="mt-1 max-h-24 overflow-y-auto text-red-400">

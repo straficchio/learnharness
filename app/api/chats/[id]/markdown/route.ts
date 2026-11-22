@@ -11,8 +11,7 @@
  * markers are invisible by the engine's law).
  */
 import { sessionMarkdown } from "@/src/core";
-import { getChat } from "@/src/server";
-import { withUser } from "@/src/server";
+import { getChat, sanitizeSessionForMarkdown, withUser } from "@/src/server";
 
 /** Filename-safe title (own module scope on purpose: tiny + pure). */
 function slugify(title: string): string {
@@ -28,7 +27,7 @@ async function GETHandler(_req: Request, ctx: { params: Promise<{ id: string }> 
 	const { id } = await ctx.params;
 	const record = getChat(id);
 	if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
-	const markdown = sessionMarkdown(record.messages, { title: record.title, anchors: false });
+	const markdown = sessionMarkdown(sanitizeSessionForMarkdown(record).messages, { title: record.title, anchors: false });
 	return new Response(markdown, {
 		headers: {
 			"content-type": "text/markdown; charset=utf-8",

@@ -92,3 +92,6 @@ export * from "./session-markdown.ts";
 // session-transfer.ts (2026-10-31): the lossless session export/import
 // contract — full ChatRecord, wrapper version, validation, size bound.
 export * from "./session-transfer.ts";
+// session-bundle.ts (2026-11-22): the attachment-aware transfer layer —
+// portable path placeholders, manifest validation, exact-path rewriting.
+export * from "./session-bundle.ts";

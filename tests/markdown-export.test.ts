@@ -59,6 +59,23 @@ describe("GET /api/chats/:id/markdown", () => {
 		assert.ok(!body.includes("m1"), "anchorless — no message-id provenance in the user-facing export");
 	});
 
+	it("never prints absolute local paths; attachment and local chips become labels", async () => {
+		const chat = createChat("Portable notes");
+		const attachment = "/Users/marco/learnharness/data/attachments/1d367abe-a585-4867-b7cb-d6748f2306a1/main.pdf";
+		const local = "/Users/marco/notes/filtering.pdf";
+		saveMessages(chat.id, [
+			{ id: "m1", role: "user", content: `Read \`${attachment}\` and \`${local}\`` },
+			{ id: "m2", role: "assistant", content: "The example lives at /opt/examples/server.ts." },
+		]);
+		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		assert.equal(res.status, 200);
+		const body = await res.text();
+		assert.ok(body.includes("[attachment: main.pdf]"));
+		assert.ok(body.includes("[local file not included: filtering.pdf]"));
+		assert.equal(body.includes("/Users/marco"), false);
+		assert.ok(body.includes("/opt/examples/server.ts"), "teacher content paths survive");
+	});
+
 	it("an unsalvageable title falls back to 'session'", async () => {
 		const chat = createChat("日本語"); // no ascii alphanumerics survive the slug
 		saveMessages(chat.id, [{ id: "m1", role: "user", content: "hello" }]);

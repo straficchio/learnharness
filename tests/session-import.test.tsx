@@ -37,7 +37,7 @@ describe("importSessionText", () => {
 			}) as typeof fetch,
 		});
 		assert.equal(url, "/api/chats/import");
-		assert.deepEqual(outcome, { ok: true, id: "chat_imported", title: "Restored", replaced: false });
+		assert.deepEqual(outcome, { ok: true, id: "chat_imported", title: "Restored", replaced: false, notices: [] });
 	});
 
 	it("surfaces the collision id/title so the UI can ask before replacing", async () => {
@@ -65,7 +65,7 @@ describe("importSessionText", () => {
 				});
 			}) as typeof fetch,
 		});
-		assert.deepEqual(outcome, { ok: true, id: "chat_x", title: "Replaced", replaced: true });
+		assert.deepEqual(outcome, { ok: true, id: "chat_x", title: "Replaced", replaced: true, notices: [] });
 	});
 
 	it("turns server errors and network failures into honest errors", async () => {
@@ -112,6 +112,7 @@ describe("importSessionZip", () => {
 			replaced: [],
 			conflicts: [{ id: "chat_b", title: "B" }],
 			failures: [{ file: "bad.json", error: "invalid", id: "chat_c", title: "C", code: "invalid_session" }],
+			notices: [],
 		});
 	});
 

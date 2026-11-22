@@ -5,7 +5,7 @@ export type FilePathPart =
 
 // No filesystem access or normalization: even punctuation and backslashes can
 // be legitimate POSIX filename characters. Only rooted syntax is required.
-function isFilePath(path: string): boolean {
+export function isFilePath(path: string): boolean {
 	if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(path)) return false;
 	return path.startsWith("/")
 		|| path.startsWith("~/")

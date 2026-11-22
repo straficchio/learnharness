@@ -125,8 +125,8 @@ describe("POST /api/chats/import", () => {
 			}),
 		);
 		assert.equal(res.status, 200);
-		const body = (await res.json()) as { ok: boolean; id: string; title: string; replaced: boolean };
-		assert.deepEqual(body, { ok: true, id: ID, title: "Replacement", replaced: true });
+		const body = (await res.json()) as { ok: boolean; id: string; title: string; replaced: boolean; notices: string[] };
+		assert.deepEqual(body, { ok: true, id: ID, title: "Replacement", replaced: true, notices: [] });
 		assert.equal(getChat(ID)?.title, "Replacement");
 	});
 

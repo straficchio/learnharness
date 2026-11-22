@@ -13,9 +13,13 @@ import {
 	MAX_BULK_IMPORT_ENTRIES,
 	MAX_BULK_IMPORT_UNCOMPRESSED_BYTES,
 	MAX_SESSION_IMPORT_BYTES,
+	SESSION_BUNDLE_FORMAT,
+	SESSION_BUNDLE_MANIFEST,
+	hasPortablePlaceholder,
+	parseSessionBundleManifest,
 	parseSessionExport,
 } from "@/src/core";
-import { importSessionRecord } from "@/src/server";
+import { importSessionBundle, importSessionRecord, sanitizeImportedSession } from "@/src/server";
 import { withUser } from "@/src/server";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +66,8 @@ async function importSingle(req: Request, replace: boolean): Promise<Response> {
 	const parsed = parseSessionExport(value);
 	if (!parsed.ok) return errorResponse(parsed.error, 400, "invalid_session");
 
-	const outcome = importSessionRecord(parsed.session, { replace });
+	const record = await sanitizeImportedSession(parsed.session);
+	const outcome = importSessionRecord(record, { replace });
 	if (!outcome.ok) {
 		return errorResponse(outcome.error, 409, outcome.code, {
 			id: outcome.id,
@@ -70,7 +75,12 @@ async function importSingle(req: Request, replace: boolean): Promise<Response> {
 			...(outcome.jobIds ? { jobIds: outcome.jobIds } : {}),
 		});
 	}
-	return jsonResponse(outcome);
+	return jsonResponse({
+		...outcome,
+		notices: hasPortablePlaceholder(record)
+			? ["Some local file references were not included and remain marked in the transcript."]
+			: [],
+	});
 }
 
 async function importZip(req: Request, replace: boolean): Promise<Response> {
@@ -92,7 +102,7 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 	try {
 		entries = unzipSync(bytes, {
 			filter: (file) => {
-				if (!/\.json$/i.test(file.name) || /^__MACOSX\//i.test(file.name)) return false;
+				if (/^__MACOSX\//i.test(file.name) || file.name.endsWith("/")) return false;
 				if (++count > MAX_BULK_IMPORT_ENTRIES) {
 					tooMany = true;
 					return false;
@@ -109,13 +119,31 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 		return errorResponse("The file is not a valid ZIP archive.", 400, "invalid_zip");
 	}
 	if (tooMany) {
-		return errorResponse(`A ZIP may contain at most ${MAX_BULK_IMPORT_ENTRIES} session files.`, 400, "too_many_entries");
+		return errorResponse(`A ZIP may contain at most ${MAX_BULK_IMPORT_ENTRIES} entries.`, 400, "too_many_entries");
 	}
 	if (tooLarge) {
 		return errorResponse("The ZIP expands beyond the session import limit.", 413, "too_large");
 	}
 
-	const files = Object.entries(entries).filter(([name]) => !name.endsWith("/"));
+	// Bundle manifest (attachment-aware export). A plain session JSON named
+	// manifest.json is still treated as a session below.
+	const manifestData = entries[SESSION_BUNDLE_MANIFEST];
+	if (manifestData) {
+		let manifestValue: unknown;
+		try {
+			manifestValue = JSON.parse(strFromU8(manifestData));
+		} catch {
+			return errorResponse("The bundle manifest is not valid JSON.", 400, "invalid_manifest");
+		}
+		if (manifestValue && typeof manifestValue === "object" && (manifestValue as { format?: unknown }).format === SESSION_BUNDLE_FORMAT) {
+			const parsed = parseSessionBundleManifest(manifestValue);
+			if (!parsed.ok) return errorResponse(parsed.error, 400, "invalid_manifest");
+			const summary = await importSessionBundle(parsed.manifest, entries, { replace });
+			return jsonResponse({ ok: true, ...summary });
+		}
+	}
+
+	const files = Object.entries(entries).filter(([name]) => /\.json$/i.test(name));
 	if (files.length === 0) {
 		return errorResponse("The ZIP contains no .json session files.", 400, "no_sessions");
 	}
@@ -124,6 +152,7 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 	const replaced: ImportedSession[] = [];
 	const conflicts: ImportedSession[] = [];
 	const failures: ImportFailure[] = [];
+	const notices: string[] = [];
 
 	for (const [file, data] of files) {
 		if (data.byteLength > MAX_SESSION_IMPORT_BYTES) {
@@ -142,9 +171,13 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 			failures.push({ file, error: parsed.error });
 			continue;
 		}
-		const outcome = importSessionRecord(parsed.session, { replace });
+		const record = await sanitizeImportedSession(parsed.session);
+		const outcome = importSessionRecord(record, { replace });
 		if (outcome.ok) {
 			(outcome.replaced ? replaced : imported).push({ id: outcome.id, title: outcome.title });
+			if (hasPortablePlaceholder(record)) {
+				notices.push(`${outcome.title}: some local file references were not included and remain marked in the transcript.`);
+			}
 		} else if (outcome.code === "session_exists") {
 			conflicts.push({ id: outcome.id, title: outcome.title });
 		} else {
@@ -158,7 +191,7 @@ async function importZip(req: Request, replace: boolean): Promise<Response> {
 		}
 	}
 
-	return jsonResponse({ ok: true, imported, replaced, conflicts, failures });
+	return jsonResponse({ ok: true, imported, replaced, conflicts, failures, notices });
 }
 
 async function POSTHandler(req: Request): Promise<Response> {
