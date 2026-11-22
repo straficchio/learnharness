@@ -21,6 +21,16 @@ function closes(run: { char: string; length: number }, opener: { char: string; l
 	return run.char === opener.char && run.length >= opener.length;
 }
 
+/** The observed corruption is an Arabic-script token glued to the closing
+ *  fence and immediately followed by English prose (`هاییCalls…`). Drop only
+ *  that leading RTL run when an ASCII word starts immediately after it;
+ *  genuine non-Latin prose is otherwise preserved. */
+const RTL_CLOSER_DEBRIS = /^[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u061C\u200E\u200F]+(?=[A-Za-z])/;
+
+function cleanTrailing(trailing: string): string {
+	return trailing.trimStart().replace(RTL_CLOSER_DEBRIS, "");
+}
+
 /** Split only a Mermaid fence's malformed closer. All other content, including
  *  every non-Mermaid code block, is returned byte-for-byte. */
 export function repairMermaidFenceClosers(markdown: string): string {
@@ -44,7 +54,7 @@ export function repairMermaidFenceClosers(markdown: string): string {
 				continue;
 			}
 			// The corrupt closer: emit a bare fence and keep the text as prose.
-			out.push(`${run.char.repeat(run.length)}`, trailing.trimStart());
+			out.push(`${run.char.repeat(run.length)}`, cleanTrailing(trailing));
 			opener = null;
 			continue;
 		}

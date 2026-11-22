@@ -10,7 +10,7 @@ const chart = [
 test("splits a Mermaid closer that carries trailing prose", () => {
 	const input = `before\n\`\`\`mermaid\n${chart}\n\`\`\`هاییCalls \`quiz\` to check understanding.\nafter\n`;
 	const output = repairMermaidFenceClosers(input);
-	assert.equal(output, `before\n\`\`\`mermaid\n${chart}\n\`\`\`\nهاییCalls \`quiz\` to check understanding.\nafter\n`);
+	assert.equal(output, `before\n\`\`\`mermaid\n${chart}\n\`\`\`\nCalls \`quiz\` to check understanding.\nafter\n`);
 });
 
 test("leaves a valid Mermaid block byte-for-byte", () => {
@@ -21,6 +21,11 @@ test("leaves a valid Mermaid block byte-for-byte", () => {
 test("accepts trailing spaces on a valid closer", () => {
 	const input = `\`\`\`mermaid\n${chart}\n\`\`\`   \nAfter.\n`;
 	assert.equal(repairMermaidFenceClosers(input), input);
+});
+
+test("preserves Arabic prose that is not glued to an ASCII word", () => {
+	const input = `\`\`\`mermaid\n${chart}\n\`\`\`هایی\nAfter.\n`;
+	assert.equal(repairMermaidFenceClosers(input), `\`\`\`mermaid\n${chart}\n\`\`\`\nهایی\nAfter.\n`);
 });
 
 test("does not touch a non-Mermaid fence with a fence-like content line", () => {
