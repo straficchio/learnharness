@@ -96,3 +96,4 @@ export * from "./session-transfer.ts";
 // portable path placeholders, manifest validation, exact-path rewriting.
 export * from "./session-bundle.ts";
 export * from "./markdown-repair.ts";
+export * from "./session-title.ts";

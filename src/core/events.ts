@@ -38,6 +38,9 @@ export interface ServerEvents {
 	"activity-changed": Record<string, never>;
 	/** The session list changed (create, delete, title). */
 	"chats-changed": Record<string, never>;
+	/** The async title job renamed a chat. Carries the title so an open
+	 *  header can patch in place; sidebar list consumers use chats-changed. */
+	"chat-title-changed": { chatId: string; title: string };
 	/** Source inventory, display names, or organizational folders changed. */
 	"sources-changed": Record<string, never>;
 	/** Web subscription state changed. No account or credential data on the bus. */
@@ -65,6 +68,7 @@ export const SERVER_EVENT_TYPES = [
 	"jobs-changed",
 	"activity-changed",
 	"chats-changed",
+	"chat-title-changed",
 	"sources-changed",
 	"subscriptions-changed",
 	"record-changed",

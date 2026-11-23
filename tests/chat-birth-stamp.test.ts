@@ -84,6 +84,17 @@ describe("POST /api/chats — the birth stamp", () => {
 		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 	});
 
+	it("a file-only opening creates with the file stem, never the absolute path", async () => {
+		const file = path.join(TMP_DATA, "papers", "FilteringMonograph.pdf");
+		const res = await POST(new Request("http://test/api/chats", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: `\`${file}\`` }),
+		}));
+		const { id } = (await res.json()) as { id: string };
+		assert.equal(chatStore.getChat(id)?.title, "FilteringMonograph");
+	});
+
 	it("changing the strong slot afterward NEVER touches existing sessions — the stamp is a copy, not a live view", async () => {
 		writeSettings({
 			version: 1,

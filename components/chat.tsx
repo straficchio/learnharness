@@ -346,6 +346,9 @@ export function Chat({
 		window.addEventListener("lh:chat-renamed", onRenamed);
 		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
 	}, [chatId]);
+	useServerEvent("chat-title-changed", (p) => {
+		if (p.chatId === chatId) setTitleText((prev) => (p.title !== prev ? p.title : prev));
+	});
 
 	// The Esc chain's last link: abort the turn. The background runner
 	// decoupled turns from views, so the abort is ALWAYS the remote kill

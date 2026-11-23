@@ -1,6 +1,6 @@
-import { chainsForSelection, formatChainLine } from "@/src/core";
+import { chainsForSelection, fallbackTitleForPrompt, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
+import { compactionInFlight, createChat, generateSessionTitle, isTurnRunning, listChats, readSettingsRecord, stores } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 import { withUser } from "@/src/server";
 
@@ -26,7 +26,7 @@ async function POSTHandler(req: Request) {
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
 	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
+	const chat = createChat(fallbackTitleForPrompt(title), kind);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches
@@ -39,6 +39,16 @@ async function POSTHandler(req: Request) {
 		stores.chatStore.saveSettings(chat.id, {
 			model: { provider: strong.model.provider, id: strong.model.id },
 			thinkingLevel: strong.thinkingLevel,
+		});
+	}
+	// The async title job (2026-11-23): the record exists now, so the send
+	// never waits for a model round-trip. The fallback is already honest
+	// (a file-only prompt uses the file stem); the selected strong model
+	// replaces it with a five-word topic title and the rename stays
+	// conditional on the learner not having renamed in the meantime.
+	if (title.trim()) {
+		void generateSessionTitle(chat.id, title, chat.title).catch((err) => {
+			console.error(`[chat ${chat.id}] title generation failed:`, err);
 		});
 	}
 	// The session's map context (owner, 2026-10-04): the picked

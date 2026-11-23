@@ -56,6 +56,10 @@ The server owns the transcript. `POST /api/chat` carries `{chatId, input}`, not 
 
 The system prompt and tool declarations are seeded by Pi at agent construction. That synthetic system message is filtered out at settlement, so every new agent receives fresh instructions rather than replaying old declarations. Rebuilding the application Agent does not require every provider transport to be stateless: the Claude Code and Antigravity CLI adapters can retain an eligible live CLI process behind this boundary (see their [lifecycle reference](claude-code.md) and [Antigravity CLI reference](antigravity-cli.md)).
 
+### Session titles
+
+`POST /api/chats` creates the record immediately with a deterministic fallback: a normal prompt uses `titleFromPrompt`, while a file-only prompt uses the file's stem rather than its absolute path. A background job then asks the session's selected model (the strong slot stamped at birth) for a topic title. Referenced text/PDF files contribute a short excerpt; the prompt carries file names, never absolute paths. Titles are normalized to at most five words, and the rename is conditional on the record still carrying the fallback, so a learner rename always wins. `chat-title-changed` updates an open header; `chats-changed` refreshes the sidebar.
+
 ### Admission, execution and settlement
 
 `src/server/chat-handler.ts` composes the turn:
