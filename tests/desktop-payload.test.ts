@@ -26,6 +26,8 @@ function withPayload(test: (fixture: {
 		write(path.join(STANDALONE, "server.js"));
 		write(path.join(".next", "static", "runtime.js"));
 		write(path.join("public", "asset.txt"));
+		write(path.join(STANDALONE, "public", "3dmol", "3Dmol-min.js"));
+		write(path.join(STANDALONE, "public", "3dmol", "LICENSE"));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
@@ -91,6 +93,15 @@ describe("desktop standalone payload", () => {
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);
+		});
+	});
+
+	it("refuses a payload missing the lazy 3D viewer assets", () => {
+		withPayload(({ root, run }) => {
+			fs.rmSync(path.join(root, STANDALONE, "public", "3dmol", "3Dmol-min.js"));
+			const result = run();
+			assert.equal(result.status, 1);
+			assert.match(String(result.stderr), /required public asset missing/);
 		});
 	});
 });

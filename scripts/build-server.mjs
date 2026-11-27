@@ -77,6 +77,19 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 	}
 }
 
+// 2d) Lazy 3D structure viewer: the client loads this public asset by URL.
+// A missing asset would silently break every molecule/crystal block in the
+// packaged app, so fail the payload build instead.
+for (const asset of [
+	path.join("public", "3dmol", "3Dmol-min.js"),
+	path.join("public", "3dmol", "LICENSE"),
+]) {
+	if (!exists(path.join(STANDALONE, asset))) {
+		console.error(`[build-server] required public asset missing from standalone: ${asset}`);
+		process.exit(1);
+	}
+}
+
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
 //    agent reads them from disk at request time).
 for (const asset of [

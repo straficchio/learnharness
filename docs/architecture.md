@@ -78,6 +78,16 @@ Persistence failures are not successful empty turns. A failed input save refuses
 
 `src/server/pi/ui-stream.ts` streams native agent events, not UIMessage SSE. `message_update` contains the full partial message; views replace its slot rather than accumulating text deltas. The turn log retains settled events and only the latest in-flight updates, with live update fan-out coalesced (100 ms by default). Reattachment cost tracks content rather than every provider chunk. Tool-call IDs are uniquified at the boundary against existing history so wire, record, answer routing and later provider context agree.
 
+### Transcript rendering and lazy diagram fences
+
+Assistant prose renders through Streamdown with app-owned block overrides in `components/md-blocks.tsx`. Besides Mermaid, three fenced families render as browser-side artifacts:
+
+- `chart`/`plot`: a validated JSON/JSON5 specification in `lib/chart-spec.ts` (line, area, scatter, bar, histogram, heatmap, multiple series, linear/log axes, annotations) sampled through the closed expression compiler in `lib/expression.ts`; `@observablehq/plot` draws it in the client and the result is serialized to SVG for display and download. There is no Python or matplotlib runtime.
+- `wavedrom`/`wavejson`: WaveDrom JSON/JSON5 only — never executable JavaScript — rendered by the lazily imported WaveDrom library.
+- `pdb`, `cif`, `xyz`, `sdf`/`mol`, `mol2`: raw inline structure data rendered by 3Dmol. The 567 KB `public/3dmol/3Dmol-min.js` UMD build (with its license) ships as a static asset; the viewer script is fetched only when a fence approaches the viewport. 3Dmol viewers own a WebGL context and timers, so they are created on visibility and destroyed when scrolled away. A WebGL probe gates the download and produces an explicit fallback message on unsupported devices.
+
+Heavy libraries are dynamic imports, so a transcript without these fences pays nothing for them. The shared frame (`components/diagrams/diagram-frame.tsx`) owns loading, error/source disclosure, copy, download and full-screen chrome. Fence content is always declarative data; none of these renderers evaluates model-authored code. The standalone payload gates the 3Dmol script and license in `scripts/build-server.mjs`, serves them in `scripts/smoke-server.mjs`, and therefore works offline in Electron.
+
 A disconnected browser detaches a **view**, not the agent. Turns run without subscribers; explicit abort is separate. `components/session-core.ts` owns adoption, 409 backoff and read-only reattachment. Premature EOF/read failure without a terminal permits one recovery attachment; a further transport failure shows an error rather than declaring completion.
 
 Submitted question drafts survive optimistic unmount in memory. An uncertain answer submission reconciles the canonical record and running-turn state before another send, and is scoped to the same question occurrence. It must not blindly replay an already-accepted answer. Saved provider failures are distinct from transient transport/settlement notices; retrying a failed response is an explicit action, not mount-time continuation. Retry retains failed attempts on disk and omits only the eligible failed tail from the temporary agent context.

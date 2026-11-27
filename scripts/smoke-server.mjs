@@ -45,6 +45,13 @@ const POLL_MS = 500;
 const BOOT_TIMEOUT_MS = 30_000;
 /** GET-only probes — the routes that exercised today's failure class. */
 const PROBES = ["/api/graph", "/api/models", "/api/settings"];
+/** Static assets the lazy diagram renderers fetch by URL. A packaged server
+ *  that boots but cannot serve these silently breaks every 3D fence; a tiny
+ *  file would mean the trace shipped a placeholder rather than the viewer. */
+const ASSET_PROBES = [
+	{ route: "/3dmol/3Dmol-min.js", minBytes: 500_000 },
+	{ route: "/3dmol/LICENSE", minBytes: 1_000 },
+];
 
 if (!fs.existsSync(SERVER)) {
 	console.error("[smoke-server] .next/standalone/server.js missing — run next build first.");
@@ -74,6 +81,23 @@ function get(url) {
 		req.setTimeout(5000, () => {
 			req.destroy();
 			resolve(0);
+		});
+	});
+}
+
+/** One GET with a byte count, for assets whose presence alone is not enough. */
+function getSize(url) {
+	return new Promise((resolve) => {
+		const req = http.get(url, (res) => {
+			let bytes = 0;
+			res.on("data", (chunk) => { bytes += chunk.length; });
+			res.on("end", () => resolve({ status: res.statusCode ?? 0, bytes }));
+			res.on("error", () => resolve({ status: res.statusCode ?? 0, bytes: 0 }));
+		});
+		req.on("error", () => resolve({ status: 0, bytes: 0 }));
+		req.setTimeout(5000, () => {
+			req.destroy();
+			resolve({ status: 0, bytes: 0 });
 		});
 	});
 }
@@ -168,6 +192,14 @@ async function main() {
 			const status = await get(url + route);
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
 			console.log(`[smoke-server] GET ${route} → 200`);
+		}
+
+		// 3) Lazy-renderer assets must ship in the standalone payload.
+		for (const { route, minBytes } of ASSET_PROBES) {
+			const { status, bytes } = await getSize(url + route);
+			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
+			if (bytes < minBytes) throw new Error(`GET ${route} → ${bytes} bytes (expected at least ${minBytes})`);
+			console.log(`[smoke-server] GET ${route} → 200 (${bytes} bytes)`);
 		}
 	} catch (err) {
 		failed = err;

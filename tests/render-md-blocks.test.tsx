@@ -61,6 +61,45 @@ describe("md-blocks — mermaid", () => {
 	});
 });
 
+describe("md-blocks — visual fences", () => {
+	it("chart/plot fences mount the lazy chart shell, never a code block", () => {
+		for (const language of ["chart", "plot"]) {
+			const html = render(`\`\`\`${language}\n{"series":[{"type":"line","x":[0,1],"y":[0,1]}]}\n\`\`\``);
+			assert.ok(html.includes('data-testid="md-chart"'), language);
+			assert.ok(html.includes('aria-busy="true"'), `${language} waits for the lazy render`);
+			assert.ok(!html.includes('data-streamdown="code-block"'), `${language} must not fall back to a code block`);
+			assert.ok(!html.includes('"series"'), `${language} source does not leak as text`);
+		}
+	});
+
+	it("wavedrom/wavejson fences mount the lazy timing shell", () => {
+		for (const language of ["wavedrom", "wavejson"]) {
+			const html = render(`\`\`\`${language}\n{"signal":[{"name":"clk","wave":"p..."}]}\n\`\`\``);
+			assert.ok(html.includes('data-testid="md-wavedrom"'), language);
+			assert.ok(html.includes('aria-busy="true"'), language);
+			assert.ok(!html.includes('data-streamdown="code-block"'), language);
+		}
+	});
+
+	it("structure fences mount the lazy 3D shell for every supported format", () => {
+		const data: Record<string, string> = {
+			pdb: "ATOM      1  O   HOH A   1       0.000   0.000   0.000  1.00  0.00           O",
+			cif: "data_water\n_cell_length_a 1",
+			xyz: "1\nwater\nO 0 0 0",
+			sdf: "water\n\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\nM  END",
+			mol: "water\n\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\nM  END",
+			mol2: "@<TRIPOS>MOLECULE\nwater",
+		};
+		for (const [language, body] of Object.entries(data)) {
+			const html = render(`\`\`\`${language}\n${body}\n\`\`\``);
+			assert.ok(html.includes('data-testid="md-molecule"'), language);
+			assert.ok(html.includes('data-testid="md-molecule-viewer"'), language);
+			assert.ok(html.includes('aria-busy="true"'), `${language} waits until visible`);
+			assert.ok(!html.includes('data-streamdown="code-block"'), language);
+		}
+	});
+});
+
 describe("md-blocks — tables", () => {
 	it("renders as a plain prose table with the copy corner — no wrapper box, no button rows", () => {
 		const html = render("| A | B |\n| --- | --- |\n| 1 | 2 |");

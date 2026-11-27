@@ -39,6 +39,9 @@ import {
 import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
+import { ChartBlock } from "@/components/diagrams/chart-block";
+import { WaveDromBlock } from "@/components/diagrams/wavedrom-block";
+import { MoleculeBlock } from "@/components/diagrams/molecule-block";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
@@ -250,7 +253,13 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const meta = (node?.properties?.metastring as string | undefined) ?? "";
 	const source = codeSource(children);
 
-	if (language === "mermaid") return <MermaidInline chart={source} />;
+	const normalized = language.toLowerCase();
+	if (normalized === "mermaid") return <MermaidInline chart={source} />;
+	if (normalized === "wavedrom" || normalized === "wavejson") return <WaveDromBlock source={source} incomplete={incomplete} />;
+	if (normalized === "chart" || normalized === "plot") return <ChartBlock source={source} incomplete={incomplete} />;
+	if (["pdb", "cif", "xyz", "sdf", "mol", "mol2"].includes(normalized)) {
+		return <MoleculeBlock source={source} language={normalized} incomplete={incomplete} />;
+	}
 
 	const startMatch = /startLine=(\d+)/.exec(meta);
 	const startLine = startMatch ? Number.parseInt(startMatch[1]!, 10) : undefined;
