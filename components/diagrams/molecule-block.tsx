@@ -6,6 +6,7 @@ import { DiagramFrame } from "@/components/diagrams/diagram-frame";
 import { load3Dmol } from "@/components/diagrams/3dmol-loader";
 
 const MAX_STRUCTURE_CHARS = 2 * 1024 * 1024;
+const HYDROGEN_COLOR = "#64748b";
 type StructureFormat = "pdb" | "cif" | "xyz" | "sdf" | "mol2";
 type StructureStyle = "stick" | "sphere" | "cartoon";
 
@@ -25,6 +26,22 @@ function styleSpec(style: StructureStyle): Record<string, unknown> {
 	if (style === "cartoon") return { cartoon: { color: "spectrum" } };
 	if (style === "sphere") return { sphere: { scale: 0.35, colorscheme: "Jmol" } };
 	return { stick: { radius: 0.15, colorscheme: "Jmol" }, sphere: { scale: 0.22, colorscheme: "Jmol" } };
+}
+
+/** Jmol paints hydrogen white — invisible on the viewer's white card. Style
+ *  non-hydrogen atoms normally, then give H a readable slate color. */
+function applyStyle(viewer: GLViewer, style: StructureStyle): void {
+	if (style === "cartoon") {
+		viewer.setStyle({}, styleSpec(style) as never);
+		return;
+	}
+	viewer.setStyle({ elem: "H", invert: true }, styleSpec(style) as never);
+	viewer.setStyle(
+		{ elem: "H" },
+		(style === "sphere"
+			? { sphere: { scale: 0.35, color: HYDROGEN_COLOR } }
+			: { stick: { radius: 0.15, color: HYDROGEN_COLOR }, sphere: { scale: 0.22, color: HYDROGEN_COLOR } }) as never,
+	);
 }
 
 /** Probe before downloading the 567 KB viewer: a device without WebGL gets a
@@ -55,6 +72,8 @@ export function MoleculeBlock({
 	const viewerRef = useRef<GLViewer | null>(null);
 	const initialViewRef = useRef<number[] | null>(null);
 	const styleRef = useRef<StructureStyle>("stick");
+	const unitCellRef = useRef(true);
+	const spinRef = useRef(false);
 	const [visible, setVisible] = useState(false);
 	const [ready, setReady] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -67,6 +86,14 @@ export function MoleculeBlock({
 	useEffect(() => {
 		styleRef.current = style;
 	}, [style]);
+
+	useEffect(() => {
+		unitCellRef.current = unitCell;
+	}, [unitCell]);
+
+	useEffect(() => {
+		spinRef.current = spin;
+	}, [spin]);
 
 	useEffect(() => {
 		const host = hostRef.current;
@@ -107,13 +134,17 @@ export function MoleculeBlock({
 				if (cancelled) return;
 				const viewer = threeDmol.createViewer(host, { backgroundColor: "white" });
 				viewerRef.current = viewer;
-				const model = viewer.addModel(source, format) as GLModel;
-				viewer.setStyle({}, styleSpec(styleRef.current) as never);
+				// PDB parsers strip hydrogens unless asked to keep them; a water
+				// molecule would otherwise render as a lone oxygen.
+				const model = viewer.addModel(source, format, { keepH: true }) as GLModel;
+				applyStyle(viewer, styleRef.current);
+				const cell = format === "cif" ? model.getCrystData() : null;
+				setHasCell(Boolean(cell));
+				if (cell && unitCellRef.current) viewer.addUnitCell(model);
+				viewer.resize();
 				viewer.zoomTo();
 				viewer.render();
-				if (format === "cif") {
-					setHasCell(Boolean(model.getCrystData()));
-				}
+				if (spinRef.current) viewer.spin("y", 1);
 				setReady(true);
 			})
 			.catch((cause: unknown) => {
@@ -126,6 +157,7 @@ export function MoleculeBlock({
 			});
 		return () => {
 			cancelled = true;
+			setReady(false);
 			initialViewRef.current = null;
 			const viewer = viewerRef.current;
 			viewerRef.current = null;
@@ -137,7 +169,7 @@ export function MoleculeBlock({
 		const viewer = viewerRef.current;
 		if (!viewer || !ready) return;
 		try {
-			viewer.setStyle({}, styleSpec(style) as never);
+			applyStyle(viewer, style);
 			viewer.render();
 		} catch {
 			/* A style that the parsed model cannot show leaves the last one. */
